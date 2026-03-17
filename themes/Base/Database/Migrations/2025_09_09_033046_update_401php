@@ -1,0 +1,30 @@
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use \Illuminate\Support\Facades\DB;
+use \Illuminate\Support\Facades\Schema;
+use Modules\Booking\Models\BookingPassenger;
+use Illuminate\Database\Schema\Blueprint;
+
+return new class extends Migration {
+    /**
+     * Run the migrations.
+     */
+    public function up(): void
+    {
+        Schema::table('bc_hotels', function (Blueprint $table) {
+            if (!Schema::hasColumn('phone', 'bc_hotels')) {
+                $table->string('phone')->nullable();
+                $table->string('website')->nullable();
+            }
+        });
+    }
+
+    /**
+     * Reverse the migrations.
+     */
+    public function down(): void
+    {
+ 
+    }
+};
