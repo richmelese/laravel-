@@ -41,6 +41,8 @@ class RouteServiceProvider extends ServiceProvider
         $this->mapLanguageRoutes();
 
         $this->mapAdminRoutes();
+
+        $this->mapAdminApiRoutes();
     }
 
     /**
@@ -93,5 +95,13 @@ class RouteServiceProvider extends ServiceProvider
             ->middleware('api')
             ->namespace($this->moduleNamespace)
             ->group(__DIR__ . '/Routes/api.php');
+    }
+
+    protected function mapAdminApiRoutes()
+    {
+        Route::prefix('api-admin')
+            ->middleware(['api','auth:sanctum'])
+            ->namespace($this->adminModuleNamespace)
+            ->group(__DIR__ . '/Routes/api-admin.php');
     }
 }

@@ -59,6 +59,21 @@ class BoatController extends Controller
                 ];
             }
         }
+
+        // API/JSON response for /api/boat
+        if ($request->wantsJson() || $request->is('api/*')) {
+            return response()->json([
+                'data' => $list->items(),
+                'meta' => [
+                    'current_page' => $list->currentPage(),
+                    'per_page'     => $list->perPage(),
+                    'total'        => $list->total(),
+                    'last_page'    => $list->lastPage(),
+                ],
+                'markers' => $markers,
+            ]);
+        }
+
         $data = [
             'rows' => $list,
             'layout'=>$layout
@@ -98,6 +113,9 @@ class BoatController extends Controller
     {
         $row = $this->boatClass::where('slug', $slug)->with(['location','translation','hasWishList'])->first();;
         if ( empty($row) or !$row->hasPermissionDetailView()) {
+            if ($request->wantsJson() || $request->is('api/*')) {
+                return response()->json(['message' => 'Boat not found'], 404);
+            }
             return redirect('/');
         }
         $adminbar_buttons = [];
@@ -133,6 +151,19 @@ class BoatController extends Controller
             'name'  => $translation->title,
             'class' => 'active'
         ];
+        // API/JSON response for /api/boat/{slug}
+        if ($request->wantsJson() || $request->is('api/*')) {
+            return response()->json([
+                'data' => [
+                    'boat'         => $row,
+                    'translation'  => $translation,
+                    'boat_related' => $boat_related,
+                    'booking_data' => $row->getBookingData(),
+                    'review_list'  => $review_list,
+                ],
+            ]);
+        }
+
         $this->setActiveMenu($row);
         return view('Boat::frontend.detail', $data);
     }

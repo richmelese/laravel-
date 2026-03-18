@@ -30,6 +30,11 @@ class BookingController extends \App\Http\Controllers\Controller
     protected $enquiryClass;
     protected $bookingInst;
 
+    protected function isApiRequest(Request $request): bool
+    {
+        return $request->wantsJson() || $request->is('api/*');
+    }
+
     public function __construct(Booking $booking, Enquiry $enquiryClass)
     {
         $this->booking = $booking;
@@ -79,16 +84,25 @@ class BookingController extends \App\Http\Controllers\Controller
             return redirect('/');
         }
 
-        $is_api = request()->segment(1) == 'api';
-
         $data = [
             'page_title' => __('Checkout'),
             'booking'    => $booking,
             'service'    => $booking->service,
             'gateways' => get_available_gateways(),
             'user'       => auth()->user(),
-            'is_api'     => $is_api
+            'is_api'     => request()->segment(1) == 'api'
         ];
+
+        if ($this->isApiRequest(request())) {
+            return response()->json([
+                'data' => [
+                    'booking' => $booking,
+                    'service' => $booking->service,
+                    'gateways' => $data['gateways'],
+                    'user' => $data['user'],
+                ],
+            ]);
+        }
         return view('Booking::frontend/checkout', $data);
     }
 
@@ -541,6 +555,16 @@ class BookingController extends \App\Http\Controllers\Controller
         ];
         if ($booking->gateway) {
             $data['gateway'] = get_payment_gateway_obj($booking->gateway);
+        }
+
+        if ($this->isApiRequest($request)) {
+            return response()->json([
+                'data' => [
+                    'booking' => $booking,
+                    'service' => $booking->service,
+                    'gateway' => $data['gateway'] ?? null,
+                ],
+            ]);
         }
         return view('Booking::frontend/detail', $data);
     }

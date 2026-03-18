@@ -13,3 +13,9 @@ use Illuminate\Http\Request;
 |
 */
 
+use Illuminate\Support\Facades\Route;
+
+Route::group(['prefix' => config('page.page_route_prefix', 'page')], function () {
+    Route::get('/{slug?}', 'PageController@detail')->name('api.page.detail');
+});
+

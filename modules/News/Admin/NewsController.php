@@ -10,6 +10,11 @@ use Modules\News\Models\NewsTranslation;
 
 class NewsController extends AdminController
 {
+    protected function isApiRequest(Request $request): bool
+    {
+        return $request->wantsJson() || $request->is('api-admin/*');
+    }
+
     public function __construct()
     {
         $this->setActiveMenu(route('news.admin.index'));
@@ -46,6 +51,18 @@ class NewsController extends AdminController
             "locale"=>\App::getLocale(),
             'page_title'=>__("News Management")
         ];
+        if ($this->isApiRequest($request)) {
+            $rows = $data['rows'];
+            return response()->json([
+                'data' => $rows->items(),
+                'meta' => [
+                    'current_page' => $rows->currentPage(),
+                    'per_page'     => $rows->perPage(),
+                    'total'        => $rows->total(),
+                    'last_page'    => $rows->lastPage(),
+                ],
+            ]);
+        }
         return view('News::admin.news.index', $data);
     }
 
@@ -71,6 +88,15 @@ class NewsController extends AdminController
             ],
             'translation'=>new NewsTranslation()
         ];
+        if ($this->isApiRequest($request)) {
+            return response()->json([
+                'data' => [
+                    'row' => $data['row'],
+                    'categories' => $data['categories'],
+                    'translation' => $data['translation'],
+                ],
+            ]);
+        }
         return view('News::admin.news.detail', $data);
     }
 
@@ -80,11 +106,13 @@ class NewsController extends AdminController
 
         $row = News::find($id);
 
-        $translation = $row->translate($request->query('lang',get_main_lang()));
-
         if (empty($row)) {
+            if ($this->isApiRequest($request)) {
+                return response()->json(['message' => 'News not found'], 404);
+            }
             return redirect(route('news.admin.index'));
         }
+        $translation = $row->translate($request->query('lang',get_main_lang()));
 
         $data = [
             'row'  => $row,
@@ -93,17 +121,34 @@ class NewsController extends AdminController
             'tags' => $row->tags,
             'enable_multi_lang'=>true
         ];
+        if ($this->isApiRequest($request)) {
+            return response()->json([
+                'data' => [
+                    'row' => $data['row'],
+                    'translation' => $data['translation'],
+                    'categories' => $data['categories'],
+                    'tags' => $data['tags'],
+                    'enable_multi_lang' => $data['enable_multi_lang'],
+                ],
+            ]);
+        }
         return view('News::admin.news.detail', $data);
     }
 
     public function store(Request $request, $id){
         if(is_demo_mode()){
+            if ($this->isApiRequest($request)) {
+                return response()->json(['message' => __("DEMO MODE: Disable update")], 403);
+            }
             return redirect()->back()->with('danger',__("DEMO MODE: Disable update"));
         }
         if($id>0){
             $this->checkPermission('news_update');
             $row = News::find($id);
             if (empty($row)) {
+                if ($this->isApiRequest($request)) {
+                    return response()->json(['message' => 'News not found'], 404);
+                }
                 return redirect(route('news.admin.index'));
             }
         }else{
@@ -124,8 +169,14 @@ class NewsController extends AdminController
                 $row->saveTag($request->input('tag_name'), $request->input('tag_ids'));
             }
             if($id > 0 ){
+                if ($this->isApiRequest($request)) {
+                    return response()->json(['message' => __('News updated'), 'data' => $row]);
+                }
                 return back()->with('success',  __('News updated') );
             }else{
+                if ($this->isApiRequest($request)) {
+                    return response()->json(['message' => __('News created'), 'data' => $row], 201);
+                }
                 return redirect(route('news.admin.edit',$row->id))->with('success', __('News created') );
             }
         }
@@ -134,15 +185,24 @@ class NewsController extends AdminController
     public function bulkEdit(Request $request)
     {
         if(is_demo_mode()){
+            if ($this->isApiRequest($request)) {
+                return response()->json(['message' => __("DEMO MODE: Disable update")], 403);
+            }
             return redirect()->back()->with('danger',__("DEMO MODE: Disable update"));
         }
         $this->checkPermission('news_update');
         $ids = $request->input('ids');
         $action = $request->input('action');
         if (empty($ids) or !is_array($ids)) {
+            if ($this->isApiRequest($request)) {
+                return response()->json(['message' => __('No items selected!')], 422);
+            }
             return redirect()->back()->with('error', __('No items selected!'));
         }
         if (empty($action)) {
+            if ($this->isApiRequest($request)) {
+                return response()->json(['message' => __('Please select an action!')], 422);
+            }
             return redirect()->back()->with('error', __('Please select an action!'));
         }
         if ($action == "delete") {
@@ -166,6 +226,9 @@ class NewsController extends AdminController
                 }
                 $query->update(['status' => $action]);
             }
+        }
+        if ($this->isApiRequest($request)) {
+            return response()->json(['message' => __('Update success!')]);
         }
         return redirect()->back()->with('success', __('Update success!'));
     }

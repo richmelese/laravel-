@@ -70,6 +70,23 @@ class PropertyController extends Controller
                 ];
             }
         }
+
+        // API/JSON response for /api/property
+        if ($request->wantsJson() || $request->is('api/*')) {
+            return response()->json([
+                'data' => $list->items(),
+                'meta' => [
+                    'current_page' => $list->currentPage(),
+                    'per_page'     => $list->perPage(),
+                    'total'        => $list->total(),
+                    'last_page'    => $list->lastPage(),
+                ],
+                'markers' => $markers,
+                'display' => $_display,
+                'layout'  => $layout,
+            ]);
+        }
+
         if ($is_ajax) {
             return [
                 'fragments' => [
@@ -128,6 +145,9 @@ class PropertyController extends Controller
         }
         $row = $this->propertyClass::where('slug', $slug)->with(['location', 'translation', 'hasWishList'])->first();
         if (empty($row) or !$row->hasPermissionDetailView()) {
+            if ($request->wantsJson() || $request->is('api/*')) {
+                return response()->json(['message' => 'Property not found'], 404);
+            }
             return redirect('/');
         }
         Tracker::track(Tracker::PAGE_VIEW, [
@@ -158,6 +178,20 @@ class PropertyController extends Controller
             'body_class'             => 'is_single'
         ];
         $this->setActiveMenu($row);
+
+        // API/JSON response for /api/property/{slug}
+        if ($request->wantsJson() || $request->is('api/*')) {
+            return response()->json([
+                'data' => [
+                    'property'         => $row,
+                    'translation'      => $translation,
+                    'property_related' => $property_related,
+                    'booking_data'     => $row->getBookingData(),
+                    'review_list'      => $review_list,
+                ],
+            ]);
+        }
+
         $blade = 'Property::frontend.detail';
         if ($layout_id == 1) {
             $blade = 'Property::frontend.detail';

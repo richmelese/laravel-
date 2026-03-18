@@ -60,6 +60,21 @@ class NewsController extends FrontendController
             'header_transparent'=>true,
             'layout'=>$layout
         ];
+
+        // API/JSON response for /api/news
+        if ($request->wantsJson() || $request->is('api/*')) {
+            $rows = $data['rows'];
+            return response()->json([
+                'data' => $rows->items(),
+                'meta' => [
+                    'current_page' => $rows->currentPage(),
+                    'per_page'     => $rows->perPage(),
+                    'total'        => $rows->total(),
+                    'last_page'    => $rows->lastPage(),
+                ],
+            ]);
+        }
+
         return view('News::frontend.index', $data);
     }
 
@@ -67,6 +82,9 @@ class NewsController extends FrontendController
     {
         $row = News::where('slug', $slug)->where('status','publish')->first();
         if (empty($row)) {
+            if ($request->wantsJson() || $request->is('api/*')) {
+                return response()->json(['message' => 'News not found'], 404);
+            }
             return redirect('/');
         }
         $adminbar_buttons = [];
@@ -102,6 +120,18 @@ class NewsController extends FrontendController
             'adminbar_buttons' => $adminbar_buttons
         ];
         $this->setActiveMenu($row);
+
+        // API/JSON response for /api/news/{slug}
+        if ($request->wantsJson() || $request->is('api/*')) {
+            return response()->json([
+                'data' => [
+                    'news'        => $row,
+                    'translation' => $translation,
+                    'related'     => $related ?? [],
+                ],
+            ]);
+        }
+
         return view('News::frontend.detail', $data);
     }
 }

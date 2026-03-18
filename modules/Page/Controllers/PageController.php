@@ -7,13 +7,14 @@ use Illuminate\Support\Facades\Request;
 use Modules\AdminController;
 use Modules\Page\Models\Page;
 use Modules\Page\Models\PageTranslation;
+use Illuminate\Http\Request as HttpRequest;
 
 class PageController extends Controller
 {
     /**
      * @return \Illuminate\Contracts\View\Factory|\Illuminate\View\View
      */
-    public function detail()
+    public function detail(HttpRequest $request)
     {
         /**
          * @var Page $page
@@ -48,6 +49,16 @@ class PageController extends Controller
         if(!empty($page->header_style) and $page->header_style == "transparent"){
             $data['header_transparent'] = true;
         }
+
+        if ($request->wantsJson() || $request->is('api/*')) {
+            return response()->json([
+                'data' => [
+                    'page' => $page,
+                    'translation' => $translation,
+                ],
+            ]);
+        }
+
         return view('Page::frontend.detail', $data);
     }
 }

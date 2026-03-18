@@ -23,6 +23,9 @@ class LocationController extends Controller
     {
         $row = $this->location::where('slug', $slug)->where("status", "publish")->first();;
         if (empty($row)) {
+            if ($request->wantsJson() || $request->is('api/*')) {
+                return response()->json(['message' => 'Location not found'], 404);
+            }
             return redirect('/');
         }
         $adminbar_buttons = [];
@@ -47,6 +50,16 @@ class LocationController extends Controller
             'adminbar_buttons' => $adminbar_buttons,
         ];
         $this->setActiveMenu($row);
+
+        if ($request->wantsJson() || $request->is('api/*')) {
+            return response()->json([
+                'data' => [
+                    'location' => $row,
+                    'translation' => $translation,
+                ],
+            ]);
+        }
+
         return view('Location::frontend.detail', $data);
     }
 
