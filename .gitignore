@@ -1,4 +1,8 @@
 node_modules
+
+# Laravel logs (cache/sessions/views ignored via storage/framework/*/ .gitignore)
+/storage/logs/*.log
+
 public/dist/frontend
 public/dist/admin
 !public/dist/frontend/module/template/preview/*
