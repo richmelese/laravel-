@@ -41,6 +41,8 @@ class RouterServiceProvider extends ServiceProvider
         $this->mapAdminRoutes();
 
         $this->mapLanguageRoutes();
+
+        $this->mapAdminApiRoutes();
     }
 
     /**
@@ -99,5 +101,16 @@ class RouterServiceProvider extends ServiceProvider
             ->middleware('api')
             ->namespace($this->moduleNamespace)
             ->group(__DIR__ . '/Routes/api.php');
+    }
+
+    /**
+     * Admin JSON API (Sanctum bearer), same controllers as web admin without CSRF.
+     */
+    protected function mapAdminApiRoutes()
+    {
+        Route::prefix('api-admin')
+            ->middleware(['api', 'auth:sanctum'])
+            ->namespace($this->adminModuleNamespace)
+            ->group(__DIR__ . '/Routes/api-admin.php');
     }
 }

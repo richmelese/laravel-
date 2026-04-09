@@ -3,6 +3,10 @@
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Middleware;
 use Illuminate\Foundation\Configuration\Exceptions;
+use Illuminate\Auth\AuthenticationException;
+use Illuminate\Http\Request;
+use Illuminate\Validation\ValidationException;
+use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
@@ -11,11 +15,19 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware) {
-        $middleware->validateCsrfTokens(except: [
+        $csrfExcept = [
             '*/gateway_callback/*',
             '*/callback/*',
             '*/order/confirm/*',
-        ]);
+        ];
+
+        // Optional dev-only bypass for cross-origin Livewire requests.
+        // Enable with LIVEWIRE_CSRF_EXEMPT=true in .env when needed.
+        if (filter_var(env('LIVEWIRE_CSRF_EXEMPT', false), FILTER_VALIDATE_BOOLEAN)) {
+            $csrfExcept[] = 'livewire/update';
+        }
+
+        $middleware->validateCsrfTokens(except: $csrfExcept);
 
         // Redirect to installer if not installed
         $middleware->append(\App\Http\Middleware\RedirectToInstaller::class);
@@ -47,5 +59,51 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->throttleApi();
     })
     ->withExceptions(function (Exceptions $exceptions) {
-        //
+        $exceptions->render(function (AuthenticationException $exception, Request $request) {
+            if ($request->is('api-admin/*') || $request->expectsJson()) {
+                return response()->json([
+                    'message' => 'You have to login',
+                ], 401);
+            }
+
+            return null;
+        });
+
+        $exceptions->render(function (ValidationException $exception, Request $request) {
+            if ($request->is('api-admin/*') || $request->is('api/*')) {
+                return response()->json([
+                    'message' => $exception->getMessage(),
+                    'errors' => $exception->errors(),
+                ], 422);
+            }
+
+            return null;
+        });
+
+        $exceptions->render(function (HttpExceptionInterface $exception, Request $request) {
+            if (! $request->is('api-admin/*') && ! $request->is('api/*')) {
+                return null;
+            }
+
+            $status = $exception->getStatusCode();
+            $message = $exception->getMessage();
+            if ($message === '') {
+                $message = match ($status) {
+                    400 => 'Bad Request',
+                    401 => 'Unauthorized',
+                    403 => 'Forbidden',
+                    404 => 'Not Found',
+                    405 => 'Method Not Allowed',
+                    419 => 'Page Expired',
+                    429 => 'Too Many Requests',
+                    500 => 'Server Error',
+                    503 => 'Service Unavailable',
+                    default => 'Error',
+                };
+            }
+
+            return response()->json([
+                'message' => $message,
+            ], $status);
+        });
     })->create();

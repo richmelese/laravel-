@@ -15,8 +15,19 @@ Route::group(['prefix' => 'car'], function () {
     // Select2 data for cars
     Route::get('/getForSelect2', 'CarController@getForSelect2')->name('api_admin.car.getForSelect2');
 
-    // Attribute term select2
-    Route::get('/attribute/getForSelect2', 'AttributeController@getForSelect2')->name('api_admin.car.attribute.term.getForSelect2');
+    Route::group(['prefix' => 'attribute'], function () {
+        Route::get('/', 'AttributeController@index')->name('api_admin.car.attribute.index');
+        Route::get('/edit/{id}', 'AttributeController@edit')->name('api_admin.car.attribute.edit');
+        Route::post('/store/{id}', 'AttributeController@store')->name('api_admin.car.attribute.store');
+        Route::post('/editAttrBulk', 'AttributeController@editAttrBulk')->name('api_admin.car.attribute.editAttrBulk');
+
+        Route::get('/terms/{id}', 'AttributeController@terms')->name('api_admin.car.attribute.term.index');
+        Route::get('/term_edit/{id}', 'AttributeController@term_edit')->name('api_admin.car.attribute.term.edit');
+        Route::post('/term_store', 'AttributeController@term_store')->name('api_admin.car.attribute.term.store');
+        Route::post('/editTermBulk', 'AttributeController@editTermBulk')->name('api_admin.car.attribute.term.editTermBulk');
+
+        Route::get('/getForSelect2', 'AttributeController@getForSelect2')->name('api_admin.car.attribute.term.getForSelect2');
+    });
 
     // Availability calendar data + save
     Route::group(['prefix' => 'availability'], function () {

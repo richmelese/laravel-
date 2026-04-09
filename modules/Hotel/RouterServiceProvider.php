@@ -41,6 +41,8 @@ class RouterServiceProvider extends ServiceProvider
         $this->mapAdminRoutes();
 
         $this->mapLanguageRoutes();
+
+        $this->mapAdminApiRoutes();
     }
 
     /**
@@ -99,5 +101,20 @@ class RouterServiceProvider extends ServiceProvider
             ->middleware('api')
             ->namespace($this->moduleNamespace)
             ->group(__DIR__ . '/Routes/api.php');
+    }
+
+    /**
+     * Define the "admin API" routes for the application.
+     *
+     * These routes are stateless JSON endpoints for admin tools.
+     *
+     * @return void
+     */
+    protected function mapAdminApiRoutes()
+    {
+        Route::prefix('api-admin')
+            ->middleware(['api','auth:sanctum'])
+            ->namespace($this->adminModuleNamespace)
+            ->group(__DIR__ . '/Routes/api-admin.php');
     }
 }

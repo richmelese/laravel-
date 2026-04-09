@@ -3,6 +3,7 @@ namespace Modules\Tour\Admin;
 
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Validator;
 use Modules\AdminController;
 use Modules\Core\Events\CreatedServicesEvent;
 use Modules\Core\Events\UpdatedServiceEvent;
@@ -38,6 +39,23 @@ class TourController extends AdminController
         $this->attributesClass = Attributes::class;
         $this->locationClass = Location::class;
         $this->locationCategoryClass = LocationCategory::class;
+    }
+
+    public function callAction($method, $parameters)
+    {
+        if (! Tour::isEnable()) {
+            $request = request();
+            if ($request && ($request->expectsJson() || $request->is('api-admin/*'))) {
+                return response()->json(['message' => __('Tour module is disabled')], 503);
+            }
+            return redirect('/');
+        }
+        return parent::callAction($method, $parameters);
+    }
+
+    protected function isApiRequest(Request $request): bool
+    {
+        return $request->wantsJson() || $request->is('api-admin/*');
     }
 
     public function index(Request $request)
@@ -84,6 +102,21 @@ class TourController extends AdminController
                 ],
             ]
         ];
+        if ($this->isApiRequest($request)) {
+            $rows = $data['rows'];
+            return response()->json([
+                'data'                 => $rows->items(),
+                'meta'                 => [
+                    'current_page' => $rows->currentPage(),
+                    'per_page'     => $rows->perPage(),
+                    'total'        => $rows->total(),
+                    'last_page'    => $rows->lastPage(),
+                ],
+                'tour_categories'      => $data['tour_categories'],
+                'tour_manage_others'   => $data['tour_manage_others'],
+                'page_title'           => $data['page_title'],
+            ]);
+        }
         return view('Tour::admin.index', $data);
     }
 
@@ -126,6 +159,22 @@ class TourController extends AdminController
                 ],
             ]
         ];
+        if ($this->isApiRequest($request)) {
+            $rows = $data['rows'];
+            return response()->json([
+                'data'               => $rows->items(),
+                'meta'               => [
+                    'current_page' => $rows->currentPage(),
+                    'per_page'     => $rows->perPage(),
+                    'total'        => $rows->total(),
+                    'last_page'    => $rows->lastPage(),
+                ],
+                'recovery'           => true,
+                'tour_categories'    => $data['tour_categories'],
+                'tour_manage_others' => $data['tour_manage_others'],
+                'page_title'         => $data['page_title'],
+            ]);
+        }
         return view('Tour::admin.index', $data);
     }
 
@@ -155,6 +204,19 @@ class TourController extends AdminController
             ],
             'page_title'        => __("Add Tour"),
         ];
+        if ($this->isApiRequest($request)) {
+            return response()->json([
+                'data' => [
+                    'row'               => $data['row'],
+                    'attributes'        => $data['attributes'],
+                    'tour_category'     => $data['tour_category'],
+                    'tour_location'     => $data['tour_location'],
+                    'location_category' => $data['location_category'],
+                    'translation'       => $data['translation'],
+                    'page_title'        => $data['page_title'],
+                ],
+            ]);
+        }
         return view('Tour::admin.detail', $data);
     }
 
@@ -163,11 +225,17 @@ class TourController extends AdminController
         $this->checkPermission('tour_update');
         $row = $this->tourClass::find($id);
         if (empty($row)) {
+            if ($this->isApiRequest($request)) {
+                return response()->json(['message' => __('Tour not found')], 404);
+            }
             return redirect(route('tour.admin.index'));
         }
         $translation = $row->translate($request->query('lang',get_main_lang()));
         if (!$this->hasPermission('tour_manage_others')) {
             if ($row->author_id != Auth::id()) {
+                if ($this->isApiRequest($request)) {
+                    return response()->json(['message' => __('Forbidden')], 403);
+                }
                 return redirect(route('tour.admin.index'));
             }
         }
@@ -192,6 +260,21 @@ class TourController extends AdminController
             ],
             'page_title'=>__('Edit Tour')
         ];
+        if ($this->isApiRequest($request)) {
+            return response()->json([
+                'data' => [
+                    'row'               => $data['row'],
+                    'translation'       => $data['translation'],
+                    'selected_terms'    => $data['selected_terms'],
+                    'attributes'        => $data['attributes'],
+                    'tour_category'     => $data['tour_category'],
+                    'tour_location'     => $data['tour_location'],
+                    'location_category' => $data['location_category'],
+                    'enable_multi_lang' => $data['enable_multi_lang'],
+                    'page_title'        => $data['page_title'],
+                ],
+            ]);
+        }
         return view('Tour::admin.detail', $data);
     }
 
@@ -199,15 +282,24 @@ class TourController extends AdminController
     {
 
         if (is_demo_mode()) {
+            if ($this->isApiRequest($request)) {
+                return response()->json(['message' => __("DEMO MODE: can not add data")], 403);
+            }
             return redirect()->back()->with('danger', __("DEMO MODE: can not add data"));
         }
         if ($id > 0) {
             $this->checkPermission('tour_update');
             $row = $this->tourClass::find($id);
             if (empty($row)) {
+                if ($this->isApiRequest($request)) {
+                    return response()->json(['message' => __('Tour not found')], 404);
+                }
                 return redirect(route('tour.admin.index'));
             }
             if ($row->author_id != Auth::id() and !$this->hasPermission('tour_manage_others')) {
+                if ($this->isApiRequest($request)) {
+                    return response()->json(['message' => __('Forbidden')], 403);
+                }
                 return redirect(route('tour.admin.index'));
             }
         } else {
@@ -215,13 +307,19 @@ class TourController extends AdminController
             $row = new $this->tourClass();
             $row->status = "publish";
         }
-        if(!empty($request->input('enable_fixed_date'))){
+        if (! empty($request->input('enable_fixed_date'))) {
             $rules = [
-                'start_date'        =>'required|date',
-                'end_date'         =>'required|date|after_or_equal:start_date',
-                'last_booking_date' =>'required|date|before:start_date|after:'.now(),
+                'start_date'        => 'required|date',
+                'end_date'         => 'required|date|after_or_equal:start_date',
+                'last_booking_date' => 'required|date|before:start_date|after:'.now(),
             ];
-            $request->validate($rules);
+            $validator = Validator::make($request->all(), $rules);
+            if ($validator->fails()) {
+                if ($this->isApiRequest($request)) {
+                    return response()->json(['message' => __('Validation failed'), 'errors' => $validator->errors()], 422);
+                }
+                return redirect()->back()->withErrors($validator)->withInput();
+            }
         }
 
         $row->fill($request->input());
@@ -245,9 +343,15 @@ class TourController extends AdminController
 
             if ($id > 0) {
                 event(new UpdatedServiceEvent($row));
+                if ($this->isApiRequest($request)) {
+                    return response()->json(['message' => __('Tour updated'), 'data' => $row]);
+                }
                 return back()->with('success', __('Tour updated'));
             } else {
                 event(new CreatedServicesEvent($row));
+                if ($this->isApiRequest($request)) {
+                    return response()->json(['message' => __('Tour created'), 'data' => $row], 201);
+                }
                 return redirect(route('tour.admin.edit', $row->id))->with('success', __('Tour created'));
             }
         }
@@ -275,9 +379,15 @@ class TourController extends AdminController
         $ids = $request->input('ids');
         $action = $request->input('action');
         if (empty($ids) or !is_array($ids)) {
+            if ($this->isApiRequest($request)) {
+                return response()->json(['message' => __('No items selected!')], 422);
+            }
             return redirect()->back()->with('error', __('No items selected!'));
         }
         if (empty($action)) {
+            if ($this->isApiRequest($request)) {
+                return response()->json(['message' => __('Please select an action!')], 422);
+            }
             return redirect()->back()->with('error', __('Please select an action!'));
         }
         switch ($action) {
@@ -294,8 +404,10 @@ class TourController extends AdminController
                         event(new UpdatedServiceEvent($row));
                     }
                 }
+                if ($this->isApiRequest($request)) {
+                    return response()->json(['message' => __('Deleted success!')]);
+                }
                 return redirect()->back()->with('success', __('Deleted success!'));
-                break;
             case "permanently_delete":
                 foreach ($ids as $id) {
                     $query = $this->tourClass::where("id", $id);
@@ -308,8 +420,10 @@ class TourController extends AdminController
                         $row->forceDelete();
                     }
                 }
+                if ($this->isApiRequest($request)) {
+                    return response()->json(['message' => __('Permanently delete success!')]);
+                }
                 return redirect()->back()->with('success', __('Permanently delete success!'));
-                break;
             case "recovery":
                 foreach ($ids as $id) {
                     $query = $this->tourClass::withTrashed()->where("id", $id);
@@ -323,15 +437,19 @@ class TourController extends AdminController
                         event(new UpdatedServiceEvent($row));
                     }
                 }
+                if ($this->isApiRequest($request)) {
+                    return response()->json(['message' => __('Recovery success!')]);
+                }
                 return redirect()->back()->with('success', __('Recovery success!'));
-                break;
             case "clone":
                 $this->checkPermission('tour_create');
                 foreach ($ids as $id) {
                     (new $this->tourClass())->saveCloneByID($id);
                 }
+                if ($this->isApiRequest($request)) {
+                    return response()->json(['message' => __('Clone success!')]);
+                }
                 return redirect()->back()->with('success', __('Clone success!'));
-                break;
             default:
                 // Change status
                 foreach ($ids as $id) {
@@ -341,12 +459,16 @@ class TourController extends AdminController
                         $this->checkPermission('tour_update');
                     }
                     $row = $query->first();
-                    $row->status = $action;
-                    $row->save();
-                    event(new UpdatedServiceEvent($row));
+                    if ($row) {
+                        $row->status = $action;
+                        $row->save();
+                        event(new UpdatedServiceEvent($row));
+                    }
+                }
+                if ($this->isApiRequest($request)) {
+                    return response()->json(['message' => __('Update success!')]);
                 }
                 return redirect()->back()->with('success', __('Update success!'));
-                break;
         }
     }
 

@@ -27,6 +27,25 @@ class AttributeController extends AdminController
         $this->termsTranslation = $termsTranslation;
     }
 
+    public function callAction($method, $parameters)
+    {
+        if (! Car::isEnable()) {
+            $request = request();
+            if ($request && ($request->wantsJson() || $request->is('api-admin/*'))) {
+                return response()->json(['message' => __('Car module is disabled')], 503);
+            }
+
+            return redirect('/');
+        }
+
+        return parent::callAction($method, $parameters);
+    }
+
+    protected function isApiRequest(Request $request): bool
+    {
+        return $request->wantsJson() || $request->is('api-admin/*');
+    }
+
     public function index(Request $request)
     {
         $this->checkPermission('car_manage_attributes');
@@ -50,6 +69,12 @@ class AttributeController extends AdminController
                 ],
             ]
         ];
+        if ($this->isApiRequest($request)) {
+            return response()->json([
+                'data' => $data['rows'],
+            ]);
+        }
+
         return view('Car::admin.attribute.index', $data);
     }
 
@@ -57,6 +82,10 @@ class AttributeController extends AdminController
     {
         $row = $this->attributesClass::find($id);
         if (empty($row)) {
+            if ($this->isApiRequest($request)) {
+                return response()->json(['message' => __('Attributes not found!')], 404);
+            }
+
             return redirect()->back()->with('error', __('Attributes not found!'));
         }
         $translation = $row->translate($request->query('lang',get_main_lang()));
@@ -64,7 +93,7 @@ class AttributeController extends AdminController
         $data = [
             'translation'    => $translation,
             'enable_multi_lang'=>true,
-            'rows'        => $this->attributesClass::where("service", 'Car')->get(),
+            'rows'        => $this->attributesClass::where("service", 'car')->get(),
             'row'         => $row,
             'breadcrumbs' => [
                 [
@@ -81,6 +110,17 @@ class AttributeController extends AdminController
                 ],
             ]
         ];
+        if ($this->isApiRequest($request)) {
+            return response()->json([
+                'data' => [
+                    'row' => $data['row'],
+                    'translation' => $data['translation'],
+                    'attributes' => $data['rows'],
+                    'enable_multi_lang' => $data['enable_multi_lang'],
+                ],
+            ]);
+        }
+
         return view('Car::admin.attribute.detail', $data);
     }
 
@@ -94,15 +134,23 @@ class AttributeController extends AdminController
         if ($id) {
             $row = $this->attributesClass::find($id);
             if (empty($row)) {
+                if ($this->isApiRequest($request)) {
+                    return response()->json(['message' => __('Attributes not found!')], 404);
+                }
+
                 return redirect()->back()->with('error', __('Attributes not found!'));
             }
         } else {
             $row = new $this->attributesClass($request->input());
-            $row->service = 'Car';
+            $row->service = 'car';
         }
         $row->fill($request->input());
         $res = $row->saveOriginOrTranslation($request->input('lang'));
         if ($res) {
+            if ($this->isApiRequest($request)) {
+                return response()->json(['message' => __('Attribute saved'), 'data' => $row]);
+            }
+
             return redirect()->back()->with('success', __('Attribute saved'));
         }
     }
@@ -113,9 +161,17 @@ class AttributeController extends AdminController
         $ids = $request->input('ids');
         $action = $request->input('action');
         if (empty($ids) or !is_array($ids)) {
+            if ($this->isApiRequest($request)) {
+                return response()->json(['message' => __('Select at least 1 item!')], 422);
+            }
+
             return redirect()->back()->with('error', __('Select at least 1 item!'));
         }
         if (empty($action)) {
+            if ($this->isApiRequest($request)) {
+                return response()->json(['message' => __('Select an Action!')], 422);
+            }
+
             return redirect()->back()->with('error', __('Select an Action!'));
         }
         if ($action == "delete") {
@@ -127,6 +183,10 @@ class AttributeController extends AdminController
                 }
             }
         }
+        if ($this->isApiRequest($request)) {
+            return response()->json(['message' => __('Updated success!')]);
+        }
+
         return redirect()->back()->with('success', __('Updated success!'));
     }
 
@@ -135,6 +195,10 @@ class AttributeController extends AdminController
         $this->checkPermission('car_manage_attributes');
         $row = $this->attributesClass::find($attr_id);
         if (empty($row)) {
+            if ($this->isApiRequest($request)) {
+                return response()->json(['message' => __('Term not found')], 404);
+            }
+
             return redirect()->back()->with('error', __('Term not found'));
         }
         $listTerms = $this->termsClass::where("attr_id", $attr_id);
@@ -162,6 +226,19 @@ class AttributeController extends AdminController
                 ],
             ]
         ];
+        if ($this->isApiRequest($request)) {
+            return response()->json([
+                'data' => $data['rows']->items(),
+                'meta' => [
+                    'current_page' => $data['rows']->currentPage(),
+                    'per_page'     => $data['rows']->perPage(),
+                    'total'        => $data['rows']->total(),
+                    'last_page'    => $data['rows']->lastPage(),
+                ],
+                'attribute' => $row,
+            ]);
+        }
+
         return view('Car::admin.terms.index', $data);
     }
 
@@ -170,6 +247,10 @@ class AttributeController extends AdminController
         $this->checkPermission('car_manage_attributes');
         $row = $this->termsClass::find($id);
         if (empty($row)) {
+            if ($this->isApiRequest($request)) {
+                return response()->json(['message' => __('Term not found')], 404);
+            }
+
             return redirect()->back()->with('error', __('Term not found'));
         }
         $translation = $row->translate($request->query('lang',get_main_lang()));
@@ -197,6 +278,17 @@ class AttributeController extends AdminController
                 ],
             ]
         ];
+        if ($this->isApiRequest($request)) {
+            return response()->json([
+                'data' => [
+                    'row' => $row,
+                    'translation' => $translation,
+                    'attribute' => $attr,
+                    'enable_multi_lang' => true,
+                ],
+            ]);
+        }
+
         return view('Car::admin.terms.detail', $data);
     }
 
@@ -210,6 +302,10 @@ class AttributeController extends AdminController
         if ($id) {
             $row = $this->termsClass::find($id);
             if (empty($row)) {
+                if ($this->isApiRequest($request)) {
+                    return response()->json(['message' => __('Term not found')], 404);
+                }
+
                 return redirect()->back()->with('error', __('Term not found'));
             }
         } else {
@@ -220,6 +316,10 @@ class AttributeController extends AdminController
         $row->image_id = $request->input('image_id');
         $res = $row->saveOriginOrTranslation($request->input('lang'));
         if ($res) {
+            if ($this->isApiRequest($request)) {
+                return response()->json(['message' => __('Term saved'), 'data' => $row]);
+            }
+
             return redirect()->back()->with('success', __('Term saved'));
         }
     }
@@ -230,9 +330,17 @@ class AttributeController extends AdminController
         $ids = $request->input('ids');
         $action = $request->input('action');
         if (empty($ids) or !is_array($ids)) {
+            if ($this->isApiRequest($request)) {
+                return response()->json(['message' => __('Select at least 1 item!')], 422);
+            }
+
             return redirect()->back()->with('error', __('Select at least 1 item!'));
         }
         if (empty($action)) {
+            if ($this->isApiRequest($request)) {
+                return response()->json(['message' => __('Select an Action!')], 422);
+            }
+
             return redirect()->back()->with('error', __('Select an Action!'));
         }
         if ($action == "delete") {
@@ -244,6 +352,10 @@ class AttributeController extends AdminController
                 }
             }
         }
+        if ($this->isApiRequest($request)) {
+            return response()->json(['message' => __('Updated success!')]);
+        }
+
         return redirect()->back()->with('success', __('Updated success!'));
     }
 
@@ -255,7 +367,7 @@ class AttributeController extends AdminController
         if($pre_selected && $selected){
             if(is_array($selected))
             {
-                $query = $this->termsClass::getForSelect2Query('Car');
+                $query = $this->termsClass::getForSelect2Query('car');
                 $items = $query->whereIn('bc_terms.id',$selected)->take(50)->get();
                 return response()->json([
                     'items'=>$items
@@ -264,12 +376,12 @@ class AttributeController extends AdminController
                 $items = $this->termsClass->find($selected);
             }
 
-            return [
+            return response()->json([
                 'results'=>$items
-            ];
+            ]);
         }
         $q = $request->query('q');
-        $query = $this->termsClass::getForSelect2Query('Car',$q);
+        $query = $this->termsClass::getForSelect2Query('car', $q);
         $res = $query->orderBy('bc_terms.id', 'desc')->limit(20)->get();
         return response()->json([
             'results' => $res
