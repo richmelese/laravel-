@@ -36,3 +36,4 @@ storage/installed
 public/themes/*/dist
 /.nova
 /.zed
+storage/debugbar/*
