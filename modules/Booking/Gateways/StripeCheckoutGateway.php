@@ -145,7 +145,7 @@ class StripeCheckoutGateway extends BaseGateway
         $booking->addMeta('stripe_session_id',$session->id);
 
 
-        return response()->json(['url'=>$session->url ?? $booking->getDetailUrl()])->send();
+        return response()->json(['url' => $session->url ?? $booking->getDetailUrl()]);
     }
 
     public function tryCreateUser(Booking $booking){

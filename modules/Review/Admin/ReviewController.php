@@ -8,6 +8,11 @@ use Modules\Review\Models\Review;
 
 class ReviewController extends AdminController
 {
+    protected function isApiRequest(Request $request): bool
+    {
+        return $request->wantsJson() || $request->is('api-admin/*');
+    }
+
     public function __construct()
     {
         $this->setActiveMenu(route('review.admin.index'));
@@ -52,6 +57,18 @@ class ReviewController extends AdminController
             ],
             'page_title' => __('All Reviews')
         ];
+        if ($this->isApiRequest($request)) {
+            $rows = $data['rows'];
+            return response()->json([
+                'data' => $rows->items(),
+                'meta' => [
+                    'current_page' => $rows->currentPage(),
+                    'per_page'     => $rows->perPage(),
+                    'total'        => $rows->total(),
+                    'last_page'    => $rows->lastPage(),
+                ],
+            ]);
+        }
         return view('Review::admin.index', $data);
     }
 

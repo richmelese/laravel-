@@ -109,9 +109,9 @@ class PaystackGateway extends BaseGateway
                 Log::warning($e->getMessage());
             }
             // redirect to offsite payment gateway
-            response()->json([
+            return response()->json([
                 'url' => $response['data']['authorization_url']
-            ])->send();
+            ]);
         }
         else {
             throw new Exception('Paystack Gateway: ' . $response->getMessage());

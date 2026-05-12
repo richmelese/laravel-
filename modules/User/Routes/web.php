@@ -2,7 +2,7 @@
 
 use Illuminate\Support\Facades\Auth;
 use \Illuminate\Support\Facades\Route;
-Route::group(['prefix'=>'user','middleware' => ['auth','verified']],function(){
+Route::group(['prefix'=>'user','middleware' => ['auth:sanctum','verified']],function(){
     Route::match(['get'],'/dashboard','UserController@dashboard')->name("vendor.dashboard");
     Route::post('/reloadChart','UserController@reloadChart');
 
@@ -43,7 +43,7 @@ Route::group(['prefix'=>'user','middleware' => ['auth','verified']],function(){
     });
 });
 
-Route::group(['prefix'=>config('chatify.routes.prefix'),'middleware'=>'auth'],function(){
+Route::group(['prefix'=>config('chatify.routes.prefix'),'middleware'=>'auth:sanctum'],function(){
     Route::get('/{id?}', 'MessagesController@iframe')->name(config('chatify.path'));
     Route::get('search','MessagesController@search')->name('search');
     Route::get('getContacts', 'MessagesController@getContacts')->name('contacts.get');
@@ -67,9 +67,9 @@ Route::post('newsletter/subscribe','UserController@subscribe')->name('newsletter
 Route::get('register','Auth\RegisterController@showRegistrationForm')->name('auth.register');
 Route::post('register','Auth\RegisterController@register')->name('auth.register.store');
 
-Route::get('/user/my-plan','PlanController@myPlan')->name('user.plan')->middleware(['auth', 'verified']);
+Route::get('/user/my-plan','PlanController@myPlan')->name('user.plan')->middleware(['auth:sanctum', 'verified']);
 Route::get('/plan','PlanController@index')->name('plan');
 Route::get('/plan/thank-you','PlanController@thankYou')->name('user.plan.thank-you');
-Route::get('/user/plan/buy/{id}','PlanController@buy')->name('user.plan.buy')->middleware(['auth', 'verified']);
-Route::post('/user/plan/buyProcess/{id}','PlanController@buyProcess')->name('user.plan.buyProcess')->middleware(['auth', 'verified']);
+Route::get('/user/plan/buy/{id}','PlanController@buy')->name('user.plan.buy')->middleware(['auth:sanctum', 'verified']);
+Route::post('/user/plan/buyProcess/{id}','PlanController@buyProcess')->name('user.plan.buyProcess')->middleware(['auth:sanctum', 'verified']);
 

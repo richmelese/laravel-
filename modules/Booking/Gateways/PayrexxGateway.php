@@ -163,9 +163,9 @@ class PayrexxGateway extends BaseGateway
             $response = $payrexx->create($gateway);
             if(!empty($response->getLink())){
                 $booking->addMeta('payrexxId',$response->getId());
-                response()->json([
+                return response()->json([
                     'url' => $response->getLink()
-                ])->send();
+                ]);
             }
         } catch (\Payrexx\PayrexxException $e) {
             throw new \Exception($e->getMessage());

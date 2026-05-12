@@ -15,6 +15,11 @@ class CategoryController extends AdminController
         $this->locationCategoryClass = LocationCategory::class;
     }
 
+    protected function isApiRequest(Request $request): bool
+    {
+        return $request->wantsJson() || $request->is('api-admin/*');
+    }
+
     public function index(Request $request)
     {
         $this->checkPermission('location_manage_others');
@@ -38,6 +43,16 @@ class CategoryController extends AdminController
                 ],
             ]
         ];
+        if ($this->isApiRequest($request)) {
+            return response()->json([
+                'data' => [
+                    'rows'        => $data['rows'],
+                    'row'         => $data['row'],
+                    'translation' => $data['translation'],
+                ],
+            ]);
+        }
+
         return view('Location::admin.category.index', $data);
     }
 
@@ -46,6 +61,10 @@ class CategoryController extends AdminController
         $this->checkPermission('location_manage_others');
         $row = $this->locationCategoryClass::find($id);
         if (empty($row)) {
+            if ($this->isApiRequest($request)) {
+                return response()->json(['message' => __('Category not found')], 404);
+            }
+
             return redirect(route('location.admin.category.index'));
         }
         $translation = $row->translate($request->query('lang',get_main_lang()));
@@ -65,18 +84,40 @@ class CategoryController extends AdminController
                 ],
             ]
         ];
+        if ($this->isApiRequest($request)) {
+            return response()->json([
+                'data' => [
+                    'row'         => $data['row'],
+                    'translation' => $data['translation'],
+                    'parents'     => $data['parents'],
+                    'enable_multi_lang' => $data['enable_multi_lang'],
+                ],
+            ]);
+        }
+
         return view('Location::admin.category.detail', $data);
     }
 
     public function store(Request $request , $id)
     {
         $this->checkPermission('location_manage_others');
-        $this->validate($request, [
-            'name' => 'required'
-        ]);
+        try {
+            $this->validate($request, [
+                'name' => 'required'
+            ]);
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            if ($this->isApiRequest($request)) {
+                return response()->json(['message' => __('Validation failed'), 'errors' => $e->errors()], 422);
+            }
+            throw $e;
+        }
         if($id>0){
             $row = $this->locationCategoryClass::find($id);
             if (empty($row)) {
+                if ($this->isApiRequest($request)) {
+                    return response()->json(['message' => __('Category not found')], 404);
+                }
+
                 return redirect(route('location.admin.category.index'));
             }
         }else{
@@ -88,6 +129,10 @@ class CategoryController extends AdminController
         $res = $row->saveOriginOrTranslation($request->input('lang'),true);
 
         if ($res) {
+            if ($this->isApiRequest($request)) {
+                return response()->json(['message' => __('Category saved'), 'data' => $row]);
+            }
+
             return back()->with('success',  __('Category saved') );
         }
     }
@@ -98,9 +143,17 @@ class CategoryController extends AdminController
         $ids = $request->input('ids');
         $action = $request->input('action');
         if (empty($ids) or !is_array($ids)) {
+            if ($this->isApiRequest($request)) {
+                return response()->json(['message' => __('Select at least 1 item!')], 422);
+            }
+
             return redirect()->back()->with('error', __('Select at least 1 item!'));
         }
         if (empty($action)) {
+            if ($this->isApiRequest($request)) {
+                return response()->json(['message' => __('Select an Action!')], 422);
+            }
+
             return redirect()->back()->with('error', __('Select an Action!'));
         }
         if ($action == "delete") {
@@ -125,6 +178,10 @@ class CategoryController extends AdminController
                 $query->update(['status' => $action]);
             }
         }
+        if ($this->isApiRequest($request)) {
+            return response()->json(['message' => __('Updated success!')]);
+        }
+
         return redirect()->back()->with('success', __('Updated success!'));
     }
 
@@ -136,9 +193,9 @@ class CategoryController extends AdminController
         if($pre_selected && $selected){
             $items = $this->locationCategoryClass::find($selected);
 
-            return [
+            return response()->json([
                 'results'=>$items
-            ];
+            ]);
         }
         $q = $request->query('q');
         $query = $this->locationCategoryClass::select('id', 'name as text')->where("status","publish");

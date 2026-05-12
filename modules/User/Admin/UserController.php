@@ -5,24 +5,228 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Modules\AdminController;
+use Modules\Media\Traits\HasUpload;
 use Modules\User\Events\VendorApproved;
 use Modules\User\Models\Role;
 use Modules\User\Models\User;
 use Modules\Vendor\Models\VendorRequest;
+use Modules\Vendor\Services\ChapaSubaccountService;
 use Modules\User\Exports\UserExport;
+use Modules\Booking\Gateways\ChapaGateway;
 
 class UserController extends AdminController
 {
+    use HasUpload;
+
     private Role $role;
 
     public function __construct(Role $role)
     {
         $this->setActiveMenu(route('user.admin.index'));
         $this->role = $role;
+    }
+
+    protected function isApiRequest(Request $request): bool
+    {
+        return $request->wantsJson() || $request->is('api-admin/*');
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    protected function adminChapaBanksList(): array
+    {
+        if (!is_admin()) {
+            return [];
+        }
+        $obj = get_payment_gateway_obj('chapa');
+
+        return $obj instanceof ChapaGateway ? $obj->getBanks() : [];
+    }
+
+    protected function userResponsePayload(User $user): array
+    {
+        $user->loadMissing(['role']);
+
+        $payload = $user->toArray();
+        $payload['avatar_id'] = $user->avatar_id ? (int) $user->avatar_id : null;
+        $payload['avatar_url'] = $user->getAvatarUrl();
+
+        return $payload;
+    }
+
+    /**
+     * Create or update a user from validated admin input (shared by web store and API update).
+     */
+    protected function persistUserFromRequest(Request $request, $id): User
+    {
+        $intId = (int) $id;
+        if ($intId > 0) {
+            $this->checkPermission('user_update');
+            $row = User::find($intId);
+            if (empty($row)) {
+                abort(404);
+            }
+            if ($row->id != Auth::user()->id and !Auth::user()->hasPermission('user_update')) {
+                abort(403);
+            }
+        } else {
+            $this->checkPermission('user_create');
+            $row = new User();
+        }
+
+        $isCreating = $intId <= 0;
+
+        $rules = [
+            'first_name'              => 'required|max:255',
+            'last_name'              => 'required|max:255',
+            'business_name'              => 'required|max:255',
+            'status'              => 'required|max:50',
+            'role_id'              => 'required|max:11',
+            'email'              =>[
+                'required',
+                'email',
+                'max:255',
+                $intId > 0 ? Rule::unique('users')->ignore($row->id) : Rule::unique('users')
+            ],
+            'user_name'=> [
+                'required',
+                'max:255',
+                'min:4',
+                'string',
+                'alpha_dash',
+                $intId > 0 ? Rule::unique('users')->ignore($row->id) : Rule::unique('users')
+            ],
+            // Password is required when creating a new user; on edit it is
+            // optional (leave blank to keep the existing one). Confirmed
+            // requires a matching `password_confirmation` field on the form.
+            'password' => [
+                $isCreating ? 'required' : 'nullable',
+                'string',
+                'min:6',
+                'max:255',
+                'confirmed',
+            ],
+            // Optional profile image. Two ways to provide it:
+            //   - `avatar`     : multipart file upload (any role, any client).
+            //   - `avatar_id`  : existing media library id (used by the admin form picker).
+            'avatar'    => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp,gif', 'max:5120'],
+            'avatar_id' => ['nullable', 'integer'],
+        ];
+
+        $request->validate($rules,[
+            'business_name.required' => __("Display name is a required field"),
+            'password.required'      => __('Password is required when creating a new user.'),
+            'password.min'           => __('Password must be at least 6 characters.'),
+            'password.confirmed'     => __('Password confirmation does not match.'),
+            'avatar.image'           => __('Profile image must be a valid image file.'),
+            'avatar.mimes'           => __('Profile image must be a JPG, PNG, WEBP, or GIF.'),
+            'avatar.max'             => __('Profile image must not exceed 5 MB.'),
+        ]);
+
+        $avatarId = $request->input('avatar_id');
+        if ($request->hasFile('avatar')) {
+            try {
+                $mediaFile = $this->uploadSingleFile($request->file('avatar'), 0, [
+                    'folder_subfix' => 'avatars',
+                ]);
+                if ($mediaFile && $mediaFile->id) {
+                    $avatarId = $mediaFile->id;
+                }
+            } catch (\Throwable $e) {
+                Log::warning('User avatar upload failed', [
+                    'caller_id' => Auth::id(),
+                    'error'     => $e->getMessage(),
+                ]);
+                abort(422, __('Profile image could not be uploaded: :err', ['err' => $e->getMessage()]));
+            }
+        }
+
+        $data = [
+            'first_name'=>$request->input('first_name'),
+            'last_name'=>$request->input('last_name'),
+            'user_name'=>$request->input('user_name'),
+            'phone'=>$request->input('phone'),
+            'birthday'=>$request->input('birthday') ? date("Y-m-d", strtotime($request->input('birthday'))) : null,
+            'bio'=>$request->input('bio'),
+            'status'=>$request->input('status'),
+            'avatar_id'=>$avatarId,
+            'email'=>$request->input('email'),
+            'business_name'=>$request->input('business_name'),
+            'name'=>$request->input('name'),
+            'address'=>$request->input('address'),
+            'address2'=>$request->input('address2'),
+            'country'=>$request->input('country'),
+            'city'=>$request->input('city'),
+            'state'=>$request->input('state'),
+            'zip_code'=>$request->input('zip_code'),
+            'vendor_commission_type'=>$request->input('vendor_commission_type'),
+            'vendor_commission_amount'=>$request->input('vendor_commission_amount'),
+        ];
+        $row->role_id = $request->input('role_id');
+        if($request->input('is_email_verified')){
+            if(!$row->email_verified_at) $row->email_verified_at = date('Y-m-d H:i:s');
+        }else{
+            $row->email_verified_at = null;
+        }
+
+        $row->fillByAttr(array_keys($data),$data);
+
+        if ($request->filled('password')) {
+            $row->password = Hash::make($request->input('password'));
+            $row->setRememberToken(Str::random(60));
+        }
+
+        if($row->status == "blocked"){
+            $services = get_bookable_services();
+            if(!empty($services)){
+                foreach ($services as $service){
+                    $service::query()->where("create_user",$row->id)->update(['status' => "draft"]);
+                }
+            }
+        }
+
+        DB::transaction(function () use ($row, $request) {
+            if (!$row->save()) {
+                abort(500, __('Could not save user'));
+            }
+            app(ChapaSubaccountService::class)->syncAfterAdminVendorUserSaved($row, $request->all());
+        });
+
+        return $row;
+    }
+
+    public function show(Request $request, $id)
+    {
+        $row = User::with(['role'])->find($id);
+        if (empty($row)) {
+            return response()->json(['message' => __('Not found')], 404);
+        }
+        if ($row->id != Auth::user()->id and !Auth::user()->hasPermission('user_update')) {
+            return response()->json(['message' => __('Forbidden')], 403);
+        }
+        return response()->json([
+            'data'  => $this->userResponsePayload($row),
+            'roles' => Role::all(),
+        ]);
+    }
+
+    public function update(Request $request, $id)
+    {
+        if (is_demo_mode()) {
+            return response()->json(['message' => __('DEMO Mode: You can not do this')], 403);
+        }
+        $row = $this->persistUserFromRequest($request, $id);
+        $fresh = $row->fresh(['role']);
+        return response()->json([
+            'message' => __('User updated'),
+            'data'    => $this->userResponsePayload($fresh),
+        ]);
     }
 
     public function index(Request $request)
@@ -44,11 +248,27 @@ class UserController extends AdminController
         if($request->query('role')){
             $listUser->role($request->query('role'));
         }
-        //$listUser->with(['wallet']);
+        $perPage = min(max((int) $request->input('per_page', 20), 1), 100);
+        $listUser->with(['role']);
         $data = [
-            'rows' => $listUser->paginate(20),
+            'rows' => $listUser->paginate($perPage),
             'roles' => Role::all()
         ];
+        if ($this->isApiRequest($request)) {
+            $rows = $data['rows'];
+            return response()->json([
+                'data' => collect($rows->items())->map(function ($user) {
+                    return $this->userResponsePayload($user);
+                })->values(),
+                'meta' => [
+                    'current_page' => $rows->currentPage(),
+                    'per_page'     => $rows->perPage(),
+                    'total'        => $rows->total(),
+                    'last_page'    => $rows->lastPage(),
+                ],
+                'roles' => $data['roles'],
+            ]);
+        }
         return view('User::admin.index', $data);
     }
 
@@ -59,6 +279,8 @@ class UserController extends AdminController
         $data = [
             'row' => $row,
             'roles' => Role::all(),
+            'chapa_banks' => $this->adminChapaBanksList(),
+            'vendor_role_id' => Role::query()->where('code', 'vendor')->value('id'),
             'breadcrumbs'=>[
                 [
                     'name'=>__("Users"),
@@ -81,6 +303,8 @@ class UserController extends AdminController
         $data = [
             'row'   => $row,
             'roles' => Role::all(),
+            'chapa_banks' => $this->adminChapaBanksList(),
+            'vendor_role_id' => Role::query()->where('code', 'vendor')->value('id'),
             'breadcrumbs'=>[
                 [
                     'name'=>__("Users"),
@@ -154,93 +378,24 @@ class UserController extends AdminController
     public function store(Request $request, $id)
     {
         if(is_demo_mode()){
+            if ($this->isApiRequest($request)) {
+                return response()->json(['message' => __('DEMO Mode: You can not do this')], 403);
+            }
             return back()->with('danger',  __('DEMO Mode: You can not do this') );
         }
 
-        if($id and $id>0){
-            $this->checkPermission('user_update');
-            $row = User::find($id);
-            if(empty($row)){
-                abort(404);
-            }
-            if ($row->id != Auth::user()->id and !Auth::user()->hasPermission('user_update')) {
-                abort(403);
-            }
+        $row = $this->persistUserFromRequest($request, $id);
 
-        }else{
-            $this->checkPermission('user_create');
-            $row = new User();
+        if ($this->isApiRequest($request)) {
+            $intId = (int) $id;
+            $fresh = $row->fresh(['role']);
+            return response()->json([
+                'message' => ($intId > 0) ? __('User updated') : __("User created"),
+                'data'    => $this->userResponsePayload($fresh),
+            ]);
         }
 
-        $rules = [
-            'first_name'              => 'required|max:255',
-            'last_name'              => 'required|max:255',
-            'business_name'              => 'required|max:255',
-            'status'              => 'required|max:50',
-            'role_id'              => 'required|max:11',
-            'email'              =>[
-                'required',
-                'email',
-                'max:255',
-                $id > 0 ? Rule::unique('users')->ignore($row->id) : Rule::unique('users')
-            ],
-            'user_name'=> [
-                'required',
-                'max:255',
-                'min:4',
-                'string',
-                'alpha_dash',
-                $id > 0 ? Rule::unique('users')->ignore($row->id) : Rule::unique('users')
-            ],
-        ];
-
-        $request->validate($rules,[
-            'business_name.required'=>__("Display name is a required field")
-        ]);
-
-        $data = [
-            'first_name'=>$request->input('first_name'),
-            'last_name'=>$request->input('last_name'),
-            'user_name'=>$request->input('user_name'),
-            'phone'=>$request->input('phone'),
-            'birthday'=>$request->input('birthday') ? date("Y-m-d", strtotime($request->input('birthday'))) : null,
-            'bio'=>$request->input('bio'),
-            'status'=>$request->input('status'),
-            'avatar_id'=>$request->input('avatar_id'),
-            'email'=>$request->input('email'),
-            'business_name'=>$request->input('business_name'),
-            'name'=>$request->input('name'),
-            'address'=>$request->input('address'),
-            'address2'=>$request->input('address2'),
-            'country'=>$request->input('country'),
-            'city'=>$request->input('city'),
-            'state'=>$request->input('state'),
-            'zip_code'=>$request->input('zip_code'),
-            'vendor_commission_type'=>$request->input('vendor_commission_type'),
-            'vendor_commission_amount'=>$request->input('vendor_commission_amount'),
-        ];
-        $row->role_id = $request->input('role_id');
-        if($request->input('is_email_verified')){
-            if(!$row->email_verified_at) $row->email_verified_at = date('Y-m-d H:i:s');
-        }else{
-            $row->email_verified_at = null;
-        }
-
-        $row->fillByAttr(array_keys($data),$data);
-
-        //Block all service when user is block
-        if($row->status == "blocked"){
-            $services = get_bookable_services();
-            if(!empty($services)){
-                foreach ($services as $service){
-                    $service::query()->where("create_user",$row->id)->update(['status' => "draft"]);
-                }
-            }
-        }
-
-        if ($row->save()) {
-            return back()->with('success', ($id and $id>0) ? __('User updated'):__("User created"));
-        }
+        return back()->with('success', ($id and $id>0) ? __('User updated'):__("User created"));
     }
 
     public function getForSelect2(Request $request)
@@ -403,6 +558,112 @@ class UserController extends AdminController
         return redirect()->back()->with('success', __('Updated successfully!'));
     }
 
+    public function vendorRequestIndex(Request $request)
+    {
+        $this->checkPermission('user_view');
+        $query = VendorRequest::query()->whereHas('user')->with(['user', 'role', 'approvedBy'])->orderBy('id', 'desc');
+
+        if ($request->filled('status')) {
+            $query->where('status', $request->input('status'));
+        }
+        if ($request->filled('user_id')) {
+            $query->where('user_id', (int) $request->input('user_id'));
+        }
+
+        $perPage = min(max((int) $request->input('per_page', 20), 1), 100);
+        $rows = $query->paginate($perPage);
+
+        return response()->json([
+            'data' => $rows->items(),
+            'meta' => [
+                'current_page' => $rows->currentPage(),
+                'per_page' => $rows->perPage(),
+                'total' => $rows->total(),
+                'last_page' => $rows->lastPage(),
+            ],
+            'roles' => Role::all(),
+        ]);
+    }
+
+    public function vendorRequestUpdate(Request $request, $id)
+    {
+        if (is_demo_mode()) {
+            return response()->json(['message' => __('DEMO Mode: You can not do this')], 403);
+        }
+        $this->checkPermission('user_create');
+
+        $vendorRequest = VendorRequest::find($id);
+        if (empty($vendorRequest)) {
+            return response()->json(['message' => __('Not found')], 404);
+        }
+
+        $action = (string) $request->input('action', 'approved');
+        if ($action === 'delete') {
+            $vendorRequest->delete();
+            return response()->json(['message' => __('Deleted success!')]);
+        }
+
+        $vendorRequest->update([
+            'status' => $action,
+            'approved_time' => now(),
+            'approved_by' => Auth::id(),
+        ]);
+
+        $user = User::find($vendorRequest->user_id);
+        if (!empty($user) && $vendorRequest->role_request) {
+            $user->assignRole($vendorRequest->role_request);
+        }
+        event(new VendorApproved($user, $vendorRequest));
+
+        return response()->json([
+            'message' => __('Updated successfully!'),
+            'data' => $vendorRequest->fresh(['user', 'role', 'approvedBy']),
+        ]);
+    }
+
+    public function vendorRequestBulkEdit(Request $request)
+    {
+        if (is_demo_mode()) {
+            return response()->json(['message' => __('DEMO Mode: You can not do this')], 403);
+        }
+        $this->checkPermission('user_create');
+
+        $ids = $request->input('ids');
+        $action = $request->input('action');
+        if (empty($ids) || !is_array($ids)) {
+            return response()->json(['message' => __('Select at least 1 item!')], 422);
+        }
+        if (empty($action)) {
+            return response()->json(['message' => __('Select an Action!')], 422);
+        }
+
+        if ($action === 'delete') {
+            VendorRequest::whereIn('id', $ids)->delete();
+            return response()->json(['message' => __('Deleted success!')]);
+        }
+
+        $updated = [];
+        $requests = VendorRequest::whereIn('id', $ids)->get();
+        foreach ($requests as $vendorRequest) {
+            $vendorRequest->update([
+                'status' => $action,
+                'approved_time' => now(),
+                'approved_by' => Auth::id(),
+            ]);
+            $user = User::find($vendorRequest->user_id);
+            if (!empty($user) && $vendorRequest->role_request) {
+                $user->assignRole($vendorRequest->role_request);
+            }
+            event(new VendorApproved($user, $vendorRequest));
+            $updated[] = $vendorRequest->id;
+        }
+
+        return response()->json([
+            'message' => __('Updated successfully!'),
+            'updated_ids' => $updated,
+        ]);
+    }
+
     public function export()
     {
         $this->checkPermission('user_view');
@@ -410,6 +671,22 @@ class UserController extends AdminController
     }
     public function verifyEmail(Request $request,$id)
     {
+        if ($this->isApiRequest($request)) {
+            $user = User::with(['role'])->find($id);
+            if (empty($user)) {
+                return response()->json(['message' => __('Verify email cancel!')], 404);
+            }
+            if ($user->id != Auth::id() && !Auth::user()->hasPermission('user_update')) {
+                return response()->json(['message' => __('Forbidden')], 403);
+            }
+            $user->email_verified_at = now();
+            $user->save();
+            return response()->json([
+                'message' => __('Verify email successfully!'),
+                'data'    => $user->fresh(['role']),
+            ]);
+        }
+
         $user = User::find($id);
         if(!empty($user)){
             $user->email_verified_at = now();

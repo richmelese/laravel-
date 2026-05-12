@@ -6,7 +6,7 @@ Route::group(['prefix'=>env('EVENT_ROUTE_PREFIX','event')],function(){
     Route::get('/{slug}','EventController@detail')->name('event.detail');// Detail
 });
 
-Route::group(['prefix'=>'user/'.env('EVENT_ROUTE_PREFIX','event'),'middleware' => ['auth','verified']],function(){
+Route::group(['prefix'=>'user/'.env('EVENT_ROUTE_PREFIX','event'),'middleware' => ['auth:sanctum','verified']],function(){
     Route::get('/','VendorEventController@indexEvent')->name('event.vendor.index');
     Route::get('/create','VendorEventController@createEvent')->name('event.vendor.create');
     Route::get('/edit/{id}','VendorEventController@editEvent')->name('event.vendor.edit');
@@ -18,7 +18,7 @@ Route::group(['prefix'=>'user/'.env('EVENT_ROUTE_PREFIX','event'),'middleware' =
     Route::get('/restore/{id}','VendorEventController@restore')->name('event.vendor.restore');
 });
 
-Route::group(['prefix'=>'user/'.env('EVENT_ROUTE_PREFIX','event')],function(){
+Route::group(['prefix'=>'user/'.env('EVENT_ROUTE_PREFIX','event'),'middleware' => ['auth:sanctum','verified']],function(){
     Route::group(['prefix'=>'availability'],function(){
         Route::get('/','AvailabilityController@index')->name('event.vendor.availability.index');
         Route::get('/loadDates','AvailabilityController@loadDates')->name('event.vendor.availability.loadDates');

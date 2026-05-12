@@ -13,6 +13,15 @@
 
     class TourController extends Controller
     {
+        private const MAX_PER_PAGE = 100;
+
+        protected function resolvePerPage(Request $request, int $default): int
+        {
+            $perPage = (int) $request->query('limit', $default);
+
+            return max(1, min(self::MAX_PER_PAGE, $perPage));
+        }
+
         protected $tourClass;
         protected $locationClass;
         protected $tourCategoryClass;
@@ -45,11 +54,8 @@
             $is_ajax = $request->query('_ajax');
             $for_map = $request->query('_map',$layout === 'map');
 
-            if(!empty($request->query('limit'))){
-                $limit = $request->query('limit');
-            }else{
-                $limit = !empty(setting_item("tour_page_limit_item"))? setting_item("tour_page_limit_item") : 9;
-            }
+            $defaultLimit = !empty(setting_item("tour_page_limit_item")) ? (int) setting_item("tour_page_limit_item") : 9;
+            $limit = $this->resolvePerPage($request, $defaultLimit);
             $query = $this->tourClass->search($request->input());
             $list = $query->paginate($limit);
 

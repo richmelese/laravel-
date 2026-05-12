@@ -6,7 +6,7 @@ Route::group(['prefix'=>config('car.car_route_prefix')],function(){
     Route::get('/{slug}','CarController@detail')->name('car.detail');// Detail
 });
 
-Route::group(['prefix'=>'user/'.config('car.car_route_prefix'),'middleware' => ['auth','verified']],function(){
+Route::group(['prefix'=>'user/'.config('car.car_route_prefix'),'middleware' => ['auth:sanctum','verified']],function(){
     Route::get('/','ManageCarController@manageCar')->name('car.vendor.index');
     Route::get('/create','ManageCarController@createCar')->name('car.vendor.create');
     Route::get('/edit/{id}','ManageCarController@editCar')->name('car.vendor.edit');
@@ -18,7 +18,7 @@ Route::group(['prefix'=>'user/'.config('car.car_route_prefix'),'middleware' => [
     Route::get('/restore/{id}','ManageCarController@restore')->name('car.vendor.restore');
 });
 
-Route::group(['prefix'=>'user/'.config('car.car_route_prefix')],function(){
+Route::group(['prefix'=>'user/'.config('car.car_route_prefix'),'middleware' => ['auth:sanctum','verified']],function(){
     Route::group(['prefix'=>'availability'],function(){
         Route::get('/','AvailabilityController@index')->name('car.vendor.availability.index');
         Route::get('/loadDates','AvailabilityController@loadDates')->name('car.vendor.availability.loadDates');

@@ -9,11 +9,13 @@
     use Illuminate\Support\Facades\Validator;
     use Illuminate\Validation\Rule;
     use Modules\AdminController;
+    use Modules\Flight\Admin\Concerns\RespondsWithFlightAdminJson;
     use Modules\Flight\Models\Flight;
     use Modules\Flight\Models\SeatType;
 
     class SeatTypeController extends AdminController
     {
+        use RespondsWithFlightAdminJson;
         /**
          * @var string
          */
@@ -50,8 +52,9 @@
             } else {
                 $query->where('author_id', Auth::id());
             }
+            $perPage = min(max((int) $request->input('per_page', 20), 1), 100);
             $data = [
-                'rows'               => $query->with(['author'])->paginate(20),
+                'rows'               => $query->with(['author'])->paginate($perPage),
                 'flight_manage_others' => $this->hasPermission('flight_manage_others'),
                 'breadcrumbs'        => [
                     [
@@ -65,6 +68,19 @@
                 ],
                 'page_title'=>__("Seat Type Management")
             ];
+            if ($this->isApiRequest($request)) {
+                $rows = $data['rows'];
+                return response()->json([
+                    'data' => $rows->items(),
+                    'meta' => [
+                        'current_page' => $rows->currentPage(),
+                        'per_page'     => $rows->perPage(),
+                        'total'        => $rows->total(),
+                        'last_page'    => $rows->lastPage(),
+                    ],
+                    'flight_manage_others' => $data['flight_manage_others'],
+                ]);
+            }
             return view('Flight::admin.seatType.index', $data);
         }
         public function edit(Request $request, $id)
@@ -102,11 +118,17 @@
                 $this->checkPermission('flight_update');
                 $row = $this->seatType::find($id);
                 if (empty($row)) {
+                    if ($this->isApiRequest($request)) {
+                        return response()->json(['message' => __('Not found')], 404);
+                    }
                     return redirect(route('flight.admin.seat_type.index'));
                 }
 
                 if($row->author_id != Auth::id() and !$this->hasPermission('flight_manage_others'))
                 {
+                    if ($this->isApiRequest($request)) {
+                        return response()->json(['message' => __('Forbidden')], 403);
+                    }
                     return redirect(route('flight.admin.seat_type.index'));
                 }
             }else{
@@ -121,6 +143,9 @@
                 ]
             ]);
             if ($validator->fails()) {
+                if ($this->isApiRequest($request)) {
+                    return response()->json(['message' => __('Validation failed'), 'errors' => $validator->errors()], 422);
+                }
                 return redirect()->back()->with(['errors' => $validator->errors()]);
             }
             $dataKeys = [
@@ -133,6 +158,12 @@
             $row->fillByAttr($dataKeys,$request->input());
             $res = $row->save();
             if ($res) {
+                if ($this->isApiRequest($request)) {
+                    return response()->json([
+                        'message' => __('Seat type saved'),
+                        'data'    => $row->fresh(['author']),
+                    ]);
+                }
                 return redirect(route('flight.admin.seat_type.edit',$row))->with('success', __('Seat type saved') );
             }
         }
@@ -144,9 +175,15 @@
             $ids = $request->input('ids');
             $action = $request->input('action');
             if (empty($ids) or !is_array($ids)) {
+                if ($this->isApiRequest($request)) {
+                    return response()->json(['message' => __('No items selected!')], 422);
+                }
                 return redirect()->back()->with('error', __('No items selected!'));
             }
             if (empty($action)) {
+                if ($this->isApiRequest($request)) {
+                    return response()->json(['message' => __('Please select an action!')], 422);
+                }
                 return redirect()->back()->with('error', __('Please select an action!'));
             }
 
@@ -163,6 +200,9 @@
                             $row->delete();
                         }
                     }
+                    if ($this->isApiRequest($request)) {
+                        return response()->json(['message' => __('Deleted success!')]);
+                    }
                     return redirect()->back()->with('success', __('Deleted success!'));
                     break;
                 case "permanently_delete":
@@ -177,12 +217,18 @@
                             $row->delete();
                         }
                     }
+                    if ($this->isApiRequest($request)) {
+                        return response()->json(['message' => __('Permanently delete success!')]);
+                    }
                     return redirect()->back()->with('success', __('Permanently delete success!'));
                     break;
                 case "clone":
                     $this->checkPermission('flight_create');
                     foreach ($ids as $id) {
                         (new $this->seatType())->saveCloneByID($id);
+                    }
+                    if ($this->isApiRequest($request)) {
+                        return response()->json(['message' => __('Clone success!')]);
                     }
                     return redirect()->back()->with('success', __('Clone success!'));
                     break;
@@ -197,6 +243,9 @@
                         $row = $query->first();
                         $row->status  = $action;
                         $row->save();
+                    }
+                    if ($this->isApiRequest($request)) {
+                        return response()->json(['message' => __('Update success!')]);
                     }
                     return redirect()->back()->with('success', __('Update success!'));
                     break;

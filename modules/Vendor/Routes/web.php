@@ -15,10 +15,12 @@ Route::group(['prefix'=>'vendor'],function(){
 
 });
 
-Route::group(['prefix'=>'vendor','middleware' => ['auth']],function(){
+Route::group(['prefix'=>'vendor','middleware' => ['auth:sanctum']],function(){
     Route::match(['get'],'/payouts','PayoutController@index')->name("vendor.payout.index");
     Route::post('/storePayoutAccounts','PayoutController@storePayoutAccounts')->name("vendor.payout.storePayoutAccounts");
     Route::post('/createPayoutRequest','PayoutController@createPayoutRequest')->name("vendor.payout.createPayoutRequest");
+    Route::get('/chapa-settings','VendorController@chapaSettings')->name("vendor.chapa.settings");
+    Route::post('/chapa-settings','VendorController@updateChapaSettings')->name("vendor.chapa.settings.update");
 
     Route::get('/booking-report','VendorController@bookingReport')->name("vendor.bookingReport");
 

@@ -40,6 +40,10 @@ Route::post('reset-password', 'AuthController@resetPassword');
 Route::group(['middleware' => 'api', 'prefix' => 'auth'], function ($router) {
     Route::post('login', 'AuthController@login')->middleware(['throttle:login']);
     Route::post('register', 'AuthController@register');
+    /** JSON resend verification email; requires Authorization: Bearer token (same as /api/auth/me). */
+    Route::post('email/verification-notification', 'AuthController@resendEmailVerification')
+        ->middleware(['throttle:6,1'])
+        ->name('api.auth.email.verification-notification');
     Route::post('logout', 'AuthController@logout');
     Route::post('refresh', 'AuthController@refreshToken');
     Route::get('me', 'AuthController@me');
@@ -54,6 +58,46 @@ Route::group(['middleware' => 'api', 'prefix' => 'auth'], function ($router) {
 
 /* User */
 Route::group(['prefix' => 'user', 'middleware' => ['api']], function ($router) {
+    /*
+     * Vendor “my listings” (Sanctum personal access token).
+     * Use Authorization: Bearer <token> — same as GET /api/auth/me.
+     * Do not use /user/hotel web URLs for SPA+Bearer; those expect session cookies.
+     */
+    Route::get('vendor/hotels', 'VendorListingController@hotels')->name('api.user.vendor.hotels');
+    Route::get('vendor/tours', 'VendorListingController@tours')->name('api.user.vendor.tours');
+    Route::get('vendor/spaces', 'VendorListingController@spaces')->name('api.user.vendor.spaces');
+    Route::get('vendor/cars', 'VendorListingController@cars')->name('api.user.vendor.cars');
+    Route::get('vendor/boats', 'VendorListingController@boats')->name('api.user.vendor.boats');
+    Route::get('vendor/events', 'VendorListingController@events')->name('api.user.vendor.events');
+    Route::get('vendor/flights', 'VendorListingController@flights')->name('api.user.vendor.flights');
+    Route::get('vendor/properties', 'VendorListingController@properties')->name('api.user.vendor.properties');
+
+    Route::get('vendor/{resource}/recovery', 'VendorListingController@vendorRecoveryListing')
+        ->where('resource', 'hotels|tours|spaces|cars|boats|events|flights|properties')
+        ->name('api.user.vendor.recovery');
+
+    // Short aliases (same handlers as vendor/* above) — avoids 404 on /api/user/hotel vs /api/user/vendor/hotels
+    Route::get('hotel', 'VendorListingController@hotels')->name('api.user.hotel');
+    Route::get('hotels', 'VendorListingController@hotels')->name('api.user.hotels');
+    Route::get('tour', 'VendorListingController@tours')->name('api.user.tour');
+    Route::get('tours', 'VendorListingController@tours')->name('api.user.tours');
+    Route::get('space', 'VendorListingController@spaces')->name('api.user.space');
+    Route::get('spaces', 'VendorListingController@spaces')->name('api.user.spaces');
+    Route::get('car', 'VendorListingController@cars')->name('api.user.car');
+    Route::get('cars', 'VendorListingController@cars')->name('api.user.cars');
+    Route::get('boat', 'VendorListingController@boats')->name('api.user.boat');
+    Route::get('boats', 'VendorListingController@boats')->name('api.user.boats');
+    Route::get('event', 'VendorListingController@events')->name('api.user.event');
+    Route::get('events', 'VendorListingController@events')->name('api.user.events');
+    Route::get('flight', 'VendorListingController@flights')->name('api.user.flight');
+    Route::get('flights', 'VendorListingController@flights')->name('api.user.flights');
+    Route::get('property', 'VendorListingController@properties')->name('api.user.property');
+    Route::get('properties', 'VendorListingController@properties')->name('api.user.properties');
+
+    Route::get('{listing}/recovery', 'VendorListingController@recoveryListing')
+        ->where('listing', 'hotel|hotels|tour|tours|space|spaces|car|cars|boat|boats|event|events|flight|flights|property|properties')
+        ->name('api.user.listing.recovery');
+
     Route::get('booking-history', 'UserController@getBookingHistory')->name("api.user.booking_history");
 
     // Wishlist

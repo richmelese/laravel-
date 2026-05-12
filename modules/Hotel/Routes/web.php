@@ -6,7 +6,7 @@ Route::group(['prefix'=>config('hotel.hotel_route_prefix')],function(){
     Route::get('/{slug}','HotelController@detail')->name('hotel.detail');// Detail
 });
 
-Route::group(['prefix'=>'user/'.config('hotel.hotel_route_prefix'),'middleware' => ['auth','verified']],function(){
+Route::group(['prefix'=>'user/'.config('hotel.hotel_route_prefix'),'middleware' => ['auth:sanctum','verified']],function(){
     Route::get('/','VendorController@index')->name('hotel.vendor.index');
     Route::get('/create','VendorController@create')->name('hotel.vendor.create');
     Route::get('/recovery','VendorController@recovery')->name('hotel.vendor.recovery');
@@ -31,7 +31,7 @@ Route::group(['prefix'=>'user/'.config('hotel.hotel_route_prefix'),'middleware' 
     });
 });
 
-Route::group(['prefix'=>'user/'.config('hotel.hotel_route_prefix')],function(){
+Route::group(['prefix'=>'user/'.config('hotel.hotel_route_prefix'),'middleware' => ['auth:sanctum','verified']],function(){
     Route::group(['prefix'=>'{hotel_id}/availability'],function(){
         Route::get('/','AvailabilityController@index')->name('hotel.vendor.room.availability.index');
         Route::get('/loadDates','AvailabilityController@loadDates')->name('hotel.vendor.room.availability.loadDates');

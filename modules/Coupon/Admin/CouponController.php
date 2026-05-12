@@ -10,6 +10,11 @@ use Modules\Coupon\Models\CouponServices;
 
 class CouponController extends AdminController
 {
+    protected function isApiRequest(Request $request): bool
+    {
+        return $request->wantsJson() || $request->is('api-admin/*') || $request->is('api/admin/*');
+    }
+
     public function __construct()
     {
         $this->setActiveMenu(route('coupon.admin.index'));
@@ -41,6 +46,15 @@ class CouponController extends AdminController
             ],
             'page_title'=>__("Coupon Management"),
         ];
+        if ($this->isApiRequest($request)) {
+            $rows = $data['rows'];
+            return response()->json([
+                'success' => true,
+                'data' => $rows->items(),
+                'total' => $rows->total(),
+                'max_pages' => $rows->lastPage(),
+            ]);
+        }
         return view('Coupon::admin.index', $data);
     }
 
@@ -50,6 +64,9 @@ class CouponController extends AdminController
 
         $row = Coupon::find($id);
         if (empty($row)) {
+            if ($this->isApiRequest($request)) {
+                return response()->json(['success' => false, 'message' => __('Not found')], 404);
+            }
             return redirect(route('coupon.admin.index'));
         }
 
@@ -66,6 +83,14 @@ class CouponController extends AdminController
             ],
             'page_title'=>__("Edit: :name",['name'=>$row->code]),
         ];
+        if ($this->isApiRequest($request)) {
+            return response()->json([
+                'success' => true,
+                'data' => $row,
+                'services' => $row->getServicesToArray(),
+                'users' => $row->getUsersToArray(),
+            ]);
+        }
         return view('Coupon::admin.detail', $data);
     }
 
@@ -87,6 +112,14 @@ class CouponController extends AdminController
             ],
             'page_title'=>__('Create Coupon'),
         ];
+        if ($this->isApiRequest($request)) {
+            return response()->json([
+                'success' => true,
+                'data' => $row,
+                'services' => [],
+                'users' => [],
+            ]);
+        }
         return view('Coupon::admin.detail', $data);
     }
 
@@ -106,6 +139,9 @@ class CouponController extends AdminController
             $this->checkPermission('coupon_update');
             $row = Coupon::find($id);
             if (empty($row)) {
+                if ($this->isApiRequest($request)) {
+                    return response()->json(['success' => false, 'message' => __('Not found')], 404);
+                }
                 return redirect(route('coupon.admin.index'));
             }
 
@@ -152,12 +188,22 @@ class CouponController extends AdminController
         }
         $res = $row->save();
         if ($res) {
+            if ($this->isApiRequest($request)) {
+                return response()->json([
+                    'success' => true,
+                    'message' => $id > 0 ? __('Coupon updated') : __('Coupon created'),
+                    'data' => $row->fresh(),
+                ]);
+            }
 
             if($id > 0 ){
                 return redirect()->back()->with('success',  __('Coupon updated') );
             }else{
                 return redirect()->to(route('coupon.admin.index'))->with('success',  __('Coupon created') );
             }
+        }
+        if ($this->isApiRequest($request)) {
+            return response()->json(['success' => false, 'message' => __('Could not save coupon')], 500);
         }
     }
 
@@ -166,9 +212,15 @@ class CouponController extends AdminController
         $ids = $request->input('ids');
         $action = $request->input('action');
         if (empty($ids) or !is_array($ids)) {
+            if ($this->isApiRequest($request)) {
+                return response()->json(['success' => false, 'message' => __('No items selected!')], 422);
+            }
             return redirect()->back()->with('error', __('No items selected!'));
         }
         if (empty($action)) {
+            if ($this->isApiRequest($request)) {
+                return response()->json(['success' => false, 'message' => __('Please select an action!')], 422);
+            }
             return redirect()->back()->with('error', __('Please select an action!'));
         }
         switch ($action){
@@ -181,12 +233,18 @@ class CouponController extends AdminController
                         $query->delete();
                     }
                 }
+                if ($this->isApiRequest($request)) {
+                    return response()->json(['success' => true, 'message' => __('Deleted success!')]);
+                }
                 return redirect()->back()->with('success', __('Deleted success!'));
                 break;
             case "clone":
                 $this->checkPermission('coupon_create');
                 foreach ($ids as $id) {
                     (new Coupon())->saveCloneByID($id);
+                }
+                if ($this->isApiRequest($request)) {
+                    return response()->json(['success' => true, 'message' => __('Clone success!')]);
                 }
                 return redirect()->back()->with('success', __('Clone success!'));
                 break;
@@ -196,6 +254,9 @@ class CouponController extends AdminController
                     $query = Coupon::query()->where("id", $id);
                     $this->checkPermission('coupon_update');
                     $query->update(['status' => $action]);
+                }
+                if ($this->isApiRequest($request)) {
+                    return response()->json(['success' => true, 'message' => __('Update success!')]);
                 }
                 return redirect()->back()->with('success', __('Update success!'));
                 break;

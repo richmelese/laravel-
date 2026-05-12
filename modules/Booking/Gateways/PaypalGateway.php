@@ -131,9 +131,9 @@ class PaypalGateway extends BaseGateway
             } catch (\Exception $e) {
                 Log::warning($e->getMessage());
             }
-            response()->json([
+            return response()->json([
                 'url' => $url
-            ])->send();
+            ]);
         } else {
 
             // Log to server

@@ -19,6 +19,16 @@
             'api/*',
             'api-admin/*',
             'admin/*',
+            'hotel/*',
+            // Public booking + enquiry JSON POSTs from another origin (SPA / mobile).
+            'booking/*',
+            // Public newsletter subscribe from cross-origin frontend.
+            'newsletter/*',
+            // Contact form AJAX/JSON POST from SPA on another origin.
+            'contact/*',
+            // Vendor / user panel (session + cookies) — needed when a SPA on another port loads these URLs.
+            'user/*',
+            'vendor/*',
             'sanctum/csrf-cookie',
             'livewire/*',
         ],

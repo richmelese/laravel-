@@ -28,23 +28,48 @@ trait HasRoles
     /**
      * Assign Role for User
      *
-     * @param String|Role $role_id
+     * @param string|int|Role $role_id
      */
-    public function assignRole($role_id){
-        if($role_id instanceof Role){
+    public function assignRole($role_id)
+    {
+        if ($role_id instanceof Role) {
             $this->role_id = $role_id->id;
             $this->save();
+
+            return;
         }
 
-        $role = Role::find((int)$role_id);
-        if(empty($role)){
-            $role = Role::query()->where('code',$role_id)->first();
-        }
-        if(empty($role)){
-            $role = Role::query()->where('name',$role_id)->first();
+        $role = null;
+
+        // Numeric id only — (int) 'customer' is 0 and must never be used as id lookup
+        if (is_int($role_id) || (is_string($role_id) && ctype_digit($role_id))) {
+            $id = (int) $role_id;
+            if ($id > 0) {
+                $role = Role::query()->find($id);
+            }
         }
 
-        if($role){
+        if (empty($role) && is_string($role_id)) {
+            $needle = trim($role_id);
+            $role = Role::query()->where('code', $needle)->first()
+                ?? Role::query()->where('name', $needle)->first();
+
+            if ($role === null && $needle !== '') {
+                $lower = strtolower($needle);
+                $role = Role::query()->whereRaw('LOWER(code) = ?', [$lower])->first()
+                    ?? Role::query()->whereRaw('LOWER(name) = ?', [$lower])->first();
+            }
+        }
+
+        // Ensure default customer role exists when registration asks for it (case-insensitive)
+        if (empty($role) && is_string($role_id) && strtolower(trim($role_id)) === 'customer') {
+            $role = Role::firstOrCreate(
+                ['code' => 'customer'],
+                ['name' => 'customer', 'status' => 'publish']
+            );
+        }
+
+        if ($role) {
             $this->role_id = $role->id;
             $this->save();
         }

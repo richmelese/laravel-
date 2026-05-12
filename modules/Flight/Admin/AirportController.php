@@ -10,6 +10,7 @@
     use Illuminate\Validation\Rule;
     use Maatwebsite\Excel\Facades\Excel;
     use Modules\AdminController;
+    use Modules\Flight\Admin\Concerns\RespondsWithFlightAdminJson;
     use Modules\Flight\Imports\AirportImportIATA;
     use Modules\Flight\Models\Airport;
     use Modules\Flight\Models\Flight;
@@ -17,6 +18,7 @@
 
     class AirportController extends AdminController
     {
+        use RespondsWithFlightAdminJson;
         /**
          * @var string
          */
@@ -65,8 +67,9 @@
             } else {
                 $query->where('author_id', Auth::id());
             }
+            $perPage = min(max((int) $request->input('per_page', 50), 1), 100);
             $data = [
-                'rows'                 => $query->with(['author'])->paginate(50),
+                'rows'                 => $query->with(['author'])->paginate($perPage),
                 'row'                  => new $this->airport,
                 'locations'   => $this->location::get()->toTree(),
                 'flight_manage_others' => $this->hasPermission('flight_manage_others'),
@@ -82,6 +85,20 @@
                 ],
                 'page_title'           => __("Airport Management")
             ];
+            if ($this->isApiRequest($request)) {
+                $rows = $data['rows'];
+                return response()->json([
+                    'data' => $rows->items(),
+                    'meta' => [
+                        'current_page' => $rows->currentPage(),
+                        'per_page'     => $rows->perPage(),
+                        'total'        => $rows->total(),
+                        'last_page'    => $rows->lastPage(),
+                    ],
+                    'locations'            => $data['locations'],
+                    'flight_manage_others' => $data['flight_manage_others'],
+                ]);
+            }
             return view('Flight::admin.airport.index', $data);
         }
 
@@ -90,10 +107,16 @@
             $this->checkPermission('flight_update');
             $row = $this->airport::find($id);
             if (empty($row)) {
+                if ($this->isApiRequest($request)) {
+                    return response()->json(['message' => __('Not found')], 404);
+                }
                 return redirect(route('flight.admin.airport.index'));
             }
             if (!$this->hasPermission('flight_manage_others')) {
                 if ($row->author_id != Auth::id()) {
+                    if ($this->isApiRequest($request)) {
+                        return response()->json(['message' => __('Forbidden')], 403);
+                    }
                     return redirect(route('flight.admin.index'));
                 }
             }
@@ -112,6 +135,14 @@
                 ],
                 'page_title'  => __("Edit: :name", ['name' => $row->code])
             ];
+            if ($this->isApiRequest($request)) {
+                return response()->json([
+                    'data' => [
+                        'row'       => $row,
+                        'locations' => $data['locations'],
+                    ],
+                ]);
+            }
             return view('Flight::admin.airport.detail', $data);
         }
 
@@ -128,10 +159,16 @@
                 $this->checkPermission('flight_update');
                 $row = $this->airport::find($id);
                 if (empty($row)) {
+                    if ($this->isApiRequest($request)) {
+                        return response()->json(['message' => __('Not found')], 404);
+                    }
                     return redirect(route('flight.admin.airport.index'));
                 }
 
                 if ($row->author_id != Auth::id() and !$this->hasPermission('flight_manage_others')) {
+                    if ($this->isApiRequest($request)) {
+                        return response()->json(['message' => __('Forbidden')], 403);
+                    }
                     return redirect(route('flight.admin.airport.index'));
                 }
             } else {
@@ -146,6 +183,9 @@
                 ]
             ]);
             if ($validator->fails()) {
+                if ($this->isApiRequest($request)) {
+                    return response()->json(['message' => __('Validation failed'), 'errors' => $validator->errors()], 422);
+                }
                 return redirect()->back()->with(['errors' => $validator->errors()]);
             }
             $dataKeys = [
@@ -161,6 +201,12 @@
             $row->fillByAttr($dataKeys, $request->input());
             $res = $row->save();
             if ($res) {
+                if ($this->isApiRequest($request)) {
+                    return response()->json([
+                        'message' => __('Airport saved'),
+                        'data'    => $row->fresh(['author']),
+                    ]);
+                }
                 return redirect(route('flight.admin.airport.edit', $row))->with('success', __('Airport saved'));
             }
         }
@@ -178,9 +224,15 @@
             $ids = $request->input('ids');
             $action = $request->input('action');
             if (empty($ids) or !is_array($ids)) {
+                if ($this->isApiRequest($request)) {
+                    return response()->json(['message' => __('No items selected!')], 422);
+                }
                 return redirect()->back()->with('error', __('No items selected!'));
             }
             if (empty($action)) {
+                if ($this->isApiRequest($request)) {
+                    return response()->json(['message' => __('Please select an action!')], 422);
+                }
                 return redirect()->back()->with('error', __('Please select an action!'));
             }
 
@@ -197,6 +249,9 @@
                             $row->delete();
                         }
                     }
+                    if ($this->isApiRequest($request)) {
+                        return response()->json(['message' => __('Deleted success!')]);
+                    }
                     return redirect()->back()->with('success', __('Deleted success!'));
                     break;
                 case "permanently_delete":
@@ -211,12 +266,18 @@
                             $row->delete();
                         }
                     }
+                    if ($this->isApiRequest($request)) {
+                        return response()->json(['message' => __('Permanently delete success!')]);
+                    }
                     return redirect()->back()->with('success', __('Permanently delete success!'));
                     break;
                 case "clone":
                     $this->checkPermission('flight_create');
                     foreach ($ids as $id) {
                         (new $this->airport())->saveCloneByID($id);
+                    }
+                    if ($this->isApiRequest($request)) {
+                        return response()->json(['message' => __('Clone success!')]);
                     }
                     return redirect()->back()->with('success', __('Clone success!'));
                     break;
@@ -231,6 +292,9 @@
                         $row = $query->first();
                         $row->status = $action;
                         $row->save();
+                    }
+                    if ($this->isApiRequest($request)) {
+                        return response()->json(['message' => __('Update success!')]);
                     }
                     return redirect()->back()->with('success', __('Update success!'));
                     break;

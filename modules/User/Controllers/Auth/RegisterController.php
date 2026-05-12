@@ -13,8 +13,8 @@
     use Illuminate\Support\Facades\Validator;
     use Illuminate\Support\MessageBag;
     use Illuminate\Validation\Rules\Password;
-    use Matrix\Exception;
     use Modules\User\Events\SendMailUserRegistered;
+    use Throwable;
 
     class RegisterController extends \App\Http\Controllers\Auth\RegisterController
 	{
@@ -89,15 +89,21 @@
                     'status'    => $request->input('publish','publish'),
                     'phone'    => $request->input('phone'),
                 ]);
-                event(new Registered($user));
+                // Assign role before mail / verification events so a mail failure cannot leave role_id null
+                $user->assignRole('customer');
                 Auth::loginUsingId($user->id);
                 try {
-                    event(new SendMailUserRegistered($user));
-                } catch (Exception $exception) {
-
-                    Log::warning("SendMailUserRegistered: " . $exception->getMessage());
+                    event(new Registered($user));
+                } catch (Throwable $e) {
+                    Log::warning('Registered event failed (e.g. verification email): '.$e->getMessage(), ['exception' => $e]);
                 }
-                $user->assignRole(setting_item('user_role'));
+                try {
+                    event(new SendMailUserRegistered($user));
+                } catch (Throwable $e) {
+                    Log::warning('SendMailUserRegistered: '.$e->getMessage(), ['exception' => $e]);
+                }
+                $user->refresh();
+
                 return response()->json([
                     'error'    => false,
                     'messages' => false,

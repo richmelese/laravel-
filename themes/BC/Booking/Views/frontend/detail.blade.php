@@ -10,7 +10,7 @@
                 <div class="col-md-8">
                     @include ($service->booking_customer_info_file ?? 'Booking::frontend/booking/booking-customer-info')
                     <div class="text-center">
-                        <a href="{{route('user.booking_history')}}" class="btn btn-primary">{{__('Booking History')}}</a>
+                        <a href="{{ config('app.frontend_home_url') }}" class="btn btn-primary">{{__('Go to Home')}}</a>
                     </div>
                 </div>
                 <div class="col-md-4">

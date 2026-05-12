@@ -29,6 +29,18 @@ return [
         'token' => env('POSTMARK_TOKEN'),
     ],
 
+    /*
+    | Mailgun (used when mail.default is "mailgun").
+    | Keys must exist even if empty so the mailer does not throw
+    | "Undefined array key 'secret'" when admin credentials are incomplete.
+    */
+    'mailgun' => [
+        'domain' => env('MAILGUN_DOMAIN'),
+        'secret' => env('MAILGUN_SECRET'),
+        'endpoint' => env('MAILGUN_ENDPOINT', 'api.mailgun.net'),
+        'scheme' => 'https',
+    ],
+
     'ses' => [
         'key' => env('AWS_ACCESS_KEY_ID'),
         'secret' => env('AWS_SECRET_ACCESS_KEY'),

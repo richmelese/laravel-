@@ -26,6 +26,23 @@ function setting_item($item, $default = '', $isArray = false)
 
     return $res;
 }
+
+/**
+ * Whether "must verify email on customer register" is enabled (core_settings / admin User Settings).
+ */
+function setting_verify_email_register_enabled(): bool
+{
+    $v = setting_item('enable_verify_email_register_user', '');
+    if (is_string($v)) {
+        $v = trim($v);
+    }
+
+    return $v === 1
+        || $v === '1'
+        || $v === true
+        || filter_var($v, FILTER_VALIDATE_BOOLEAN);
+}
+
 function setting_item_array($item, $default = '')
 {
 

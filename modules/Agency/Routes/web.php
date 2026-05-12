@@ -24,7 +24,7 @@ Route::group(['prefix'=> 'agent'],function() {
 
     // Route::get('/getAgentContact','AgentController@getAgentContact')->name('agent.getAgentContact');
 });
-    Route::group(['prefix'=>'user/agency','middleware' => ['auth','verified']],function(){
+    Route::group(['prefix'=>'user/agency','middleware' => ['auth:sanctum','verified']],function(){
         Route::get('/','AgencyManagerController@manageAgency')->name('agency.vendor.index');
         Route::get('/edit/{id}','AgencyManagerController@edit')->name('agency.vendor.edit');
         Route::post('/store/{id}','AgencyManagerController@store')->name('agency.vendor.store');

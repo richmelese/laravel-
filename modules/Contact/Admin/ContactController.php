@@ -8,9 +8,7 @@
 namespace Modules\Contact\Admin;
 
 use Illuminate\Support\Facades\Route;
-use function Clue\StreamFilter\fun;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Auth;
 use Modules\AdminController;
 use Modules\Contact\Models\Contact;
 
@@ -22,22 +20,42 @@ class ContactController extends AdminController
         $this->setActiveMenu(route('booking.admin.index'));
     }
 
+    protected function isApiRequest(Request $request): bool
+    {
+        return $request->wantsJson() || $request->is('api-admin/*');
+    }
+
     public function index(Request $request)
     {
         $this->checkPermission('contact_manage');
 
         $s = $request->query('s');
-        $datapage = New Contact;
+        $query = Contact::query()->orderBy('id', 'desc');
         if ($s) {
-            $datapage->where(function ($query) use ($s){
-                $query->where('name', 'LIKE', '%' . $s . '%')
-                    ->orWhere('email','LIKE', '%' . $s . '%')
-                    ->orWhere('message','LIKE', '%' . $s . '%')
-                ;
+            $query->where(function ($builder) use ($s) {
+                $builder->where('name', 'LIKE', '%' . $s . '%')
+                    ->orWhere('email', 'LIKE', '%' . $s . '%')
+                    ->orWhere('message', 'LIKE', '%' . $s . '%');
             });
         }
+
+        $perPage = min(max((int) $request->input('per_page', 20), 1), 100);
+        $rows = $query->paginate($perPage);
+
+        if ($this->isApiRequest($request)) {
+            return response()->json([
+                'data' => $rows->items(),
+                'meta' => [
+                    'current_page' => $rows->currentPage(),
+                    'per_page'     => $rows->perPage(),
+                    'total'        => $rows->total(),
+                    'last_page'    => $rows->lastPage(),
+                ],
+            ]);
+        }
+
         $data = [
-            'rows'        => $datapage->paginate(20),
+            'rows'        => $rows,
             'breadcrumbs' => [
                 [
                     'name' => __('Contact Submissions'),

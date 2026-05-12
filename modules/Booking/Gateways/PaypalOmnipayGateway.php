@@ -141,9 +141,9 @@ class PaypalOmnipayGateway extends BaseGateway
                 Log::warning($e->getMessage());
             }
             // redirect to offsite payment gateway
-            response()->json([
+            return response()->json([
                 'url' => $response->getRedirectUrl()
-            ])->send();
+            ]);
         } else {
             throw new Exception('Paypal Gateway: ' . $response->getMessage());
         }

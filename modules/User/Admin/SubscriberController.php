@@ -1,8 +1,6 @@
 <?php
 namespace Modules\User\Admin;
 
-use App\User;
-use function Clue\StreamFilter\fun;
 use Illuminate\Http\Request;
 use Modules\AdminController;
 use Modules\User\Exports\SubscriberExport;
@@ -13,6 +11,11 @@ class SubscriberController extends AdminController
     public function __construct()
     {
         $this->setActiveMenu(route('user.admin.index'));
+    }
+
+    protected function isApiRequest(Request $request): bool
+    {
+        return $request->wantsJson() || $request->is('api-admin/*');
     }
 
     public function index(Request $request)
@@ -28,8 +31,21 @@ class SubscriberController extends AdminController
             });
         }
         $listCategory = $listCategory->orderBy('created_at', 'asc');
+        $perPage = min(max((int) $request->input('per_page', 20), 1), 100);
+        $rows = $listCategory->paginate($perPage);
+        if ($this->isApiRequest($request)) {
+            return response()->json([
+                'data' => $rows->items(),
+                'meta' => [
+                    'current_page' => $rows->currentPage(),
+                    'per_page'     => $rows->perPage(),
+                    'total'        => $rows->total(),
+                    'last_page'    => $rows->lastPage(),
+                ],
+            ]);
+        }
         $data = [
-            'rows'        => $listCategory->paginate(20),
+            'rows'        => $rows,
             'row'         => new Subscriber(),
             'breadcrumbs' => [
                 [
@@ -43,6 +59,24 @@ class SubscriberController extends AdminController
             ]
         ];
         return view('User::newsletter.subscriber.index', $data);
+    }
+
+    public function show(Request $request, $id)
+    {
+        $this->checkPermission('newsletter_manage');
+        $row = Subscriber::find($id);
+        if (empty($row)) {
+            return response()->json(['message' => __('Not found')], 404);
+        }
+
+        return response()->json(['data' => $row]);
+    }
+
+    public function update(Request $request, $id)
+    {
+        $request->merge(['id' => $id]);
+
+        return $this->store($request);
     }
 
     public function edit(Request $request, $id)
@@ -85,12 +119,30 @@ class SubscriberController extends AdminController
         } else {
             $row = new Subscriber();
         }
+        if (empty($row)) {
+            if ($this->isApiRequest($request)) {
+                return response()->json(['message' => __('Not found')], 404);
+            }
+            return redirect()->back()->with('error', __('Not found'));
+        }
         $check = Subscriber::where('email', $request->input('email'))->first();
         if ($check and $check->id != $request->input('id')) {
+            if ($this->isApiRequest($request)) {
+                return response()->json(['message' => __('Email exists')], 422);
+            }
             return redirect()->back()->with('error', __('Email exists'));
         }
-        $row->fill($request->input());
+        $row->fill($request->only(['email', 'first_name', 'last_name']));
         if ($row->save()) {
+            if ($this->isApiRequest($request)) {
+                $created = !$request->input('id');
+
+                return response()->json([
+                    'message' => $created ? __('Subscriber created') : __('Subscriber updated'),
+                    'data'    => $row->fresh(),
+                ]);
+            }
+
             return redirect()->back()->with('success', __('Subscriber updated'));
         }
     }
@@ -101,28 +153,36 @@ class SubscriberController extends AdminController
         $ids = $request->input('ids');
         $action = $request->input('action');
         if (empty($ids) or !is_array($ids)) {
+            if ($this->isApiRequest($request)) {
+                return response()->json(['message' => __('Select at least 1 item!')], 422);
+            }
             return redirect()->back()->with('error', __('Select at least 1 item!'));
         }
         if (empty($action)) {
+            if ($this->isApiRequest($request)) {
+                return response()->json(['message' => __('Select an Action!')], 422);
+            }
             return redirect()->back()->with('error', __('Select an Action!'));
         }
         switch ($action) {
             case "delete":
                 foreach ($ids as $id) {
-                    $query = Subscriber::where("id", $id);
-                    $query->first();
-                    if(!empty($query)){
-                        $query->delete();
+                    $row = Subscriber::find($id);
+                    if (!empty($row)) {
+                        $row->delete();
                     }
                 }
                 break;
             default:
                 foreach ($ids as $id) {
-                    $query = Subscriber::where("id", $id);
-                    $query->update(['status' => $action]);
+                    Subscriber::where("id", $id)->update(['status' => $action]);
                 }
                 break;
         }
+        if ($this->isApiRequest($request)) {
+            return response()->json(['message' => __('Updated successfully!')]);
+        }
+
         return redirect()->back()->with('success', __('Updated successfully!'));
     }
 

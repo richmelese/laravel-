@@ -55,6 +55,138 @@ class EnquiryController extends AdminController
         return view('Report::admin.enquiry.index', $data);
     }
 
+    public function apiIndex(Request $request)
+    {
+        $user = auth()->user();
+        if (!$user) {
+            return response()->json(['message' => 'Unauthenticated'], 401);
+        }
+        if (!method_exists($user, 'hasPermission') || !$user->hasPermission('enquiry_view')) {
+            return response()->json(['message' => 'Forbidden'], 403);
+        }
+
+        $query = $this->enquiryClass->query()
+            ->where('status', '!=', 'draft')
+            ->whereIn('object_model', array_keys(get_bookable_services()))
+            ->withCount(['replies'])
+            ->orderByDesc('id');
+
+        if ($search = $request->query('s')) {
+            $query->where('email', 'LIKE', '%' . $search . '%');
+        }
+        if ($status = $request->query('status')) {
+            $query->where('status', $status);
+        }
+
+        $perPage = max(1, min((int) $request->query('per_page', 20), 200));
+
+        return response()->json([
+            'data' => $query->paginate($perPage),
+            'permissions' => [
+                'enquiry_update' => $user->hasPermission('enquiry_update'),
+                'enquiry_manage_others' => $user->hasPermission('enquiry_manage_others'),
+            ],
+            'statuses' => $this->enquiryClass->enquiryStatus,
+        ]);
+    }
+
+    public function apiBulkEdit(Request $request)
+    {
+        $user = auth()->user();
+        if (!$user) {
+            return response()->json(['message' => 'Unauthenticated'], 401);
+        }
+        if (!method_exists($user, 'hasPermission') || !$user->hasPermission('enquiry_update')) {
+            return response()->json(['message' => 'Forbidden'], 403);
+        }
+
+        $ids = $request->input('ids', []);
+        $action = (string) $request->input('action', '');
+        if (!is_array($ids) || empty($ids)) {
+            return response()->json(['message' => 'No items selected'], 422);
+        }
+        if ($action === '') {
+            return response()->json(['message' => 'Please select action'], 422);
+        }
+
+        $affected = 0;
+        foreach ($ids as $id) {
+            $query = $this->enquiryClass->query()->where('id', (int) $id);
+            if (!$user->hasPermission('enquiry_manage_others')) {
+                $query->where('vendor_id', $user->id);
+            }
+
+            if ($action === 'delete') {
+                $affected += $query->delete();
+                continue;
+            }
+
+            $item = $query->first();
+            if ($item) {
+                $item->status = $action;
+                $item->save();
+                $affected++;
+            }
+        }
+
+        return response()->json([
+            'message' => 'Update success',
+            'affected' => $affected,
+        ]);
+    }
+
+    public function apiReplies(Enquiry $enquiry, Request $request)
+    {
+        $user = auth()->user();
+        if (!$user) {
+            return response()->json(['message' => 'Unauthenticated'], 401);
+        }
+        if (!method_exists($user, 'hasPermission') || !$user->hasPermission('enquiry_view')) {
+            return response()->json(['message' => 'Forbidden'], 403);
+        }
+        if (!$user->hasPermission('enquiry_manage_others') && (int) $enquiry->vendor_id !== (int) $user->id) {
+            return response()->json(['message' => 'Forbidden'], 403);
+        }
+
+        $perPage = max(1, min((int) $request->query('per_page', 20), 200));
+
+        return response()->json([
+            'data' => $enquiry->replies()->orderByDesc('id')->paginate($perPage),
+            'enquiry' => $enquiry,
+        ]);
+    }
+
+    public function apiReplyStore(Enquiry $enquiry, Request $request)
+    {
+        $user = auth()->user();
+        if (!$user) {
+            return response()->json(['message' => 'Unauthenticated'], 401);
+        }
+        if (!method_exists($user, 'hasPermission') || !$user->hasPermission('enquiry_view')) {
+            return response()->json(['message' => 'Forbidden'], 403);
+        }
+        if (!$user->hasPermission('enquiry_manage_others') && (int) $enquiry->vendor_id !== (int) $user->id) {
+            return response()->json(['message' => 'Forbidden'], 403);
+        }
+
+        $request->validate([
+            'content' => 'required|string',
+        ]);
+
+        $reply = new EnquiryReply();
+        $reply->content = $request->input('content');
+        $reply->parent_id = $enquiry->id;
+        $reply->user_id = $user->id;
+        $reply->save();
+
+        EnquiryReplyCreated::dispatch($reply, $enquiry);
+
+        return response()->json([
+            'message' => 'Reply added',
+            'data' => $reply,
+        ], 201);
+    }
+
     public function bulkEdit(Request $request)
     {
         $ids = $request->input('ids');

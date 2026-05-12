@@ -9,7 +9,7 @@ Route::group(['prefix'=>config('news.news_route_prefix')],function(){
 });
 
 
-Route::prefix('vendor/'.config('news.news_route_prefix'))->name('news.vendor.')->middleware(['auth','verified'])->group(function(){
+Route::prefix('vendor/'.config('news.news_route_prefix'))->name('news.vendor.')->middleware(['auth:sanctum','verified'])->group(function(){
     Route::get('/','VendorNewsController@index')->name('index');
     Route::get('/create','VendorNewsController@create')->name('create');
     Route::get('/edit/{id}', 'VendorNewsController@edit')->name('edit');

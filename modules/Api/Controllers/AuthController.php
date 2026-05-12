@@ -11,12 +11,12 @@ use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Validation\Rule;
-use Matrix\Exception;
 use Modules\User\Emails\ResetPasswordToken;
 use Modules\User\Events\SendMailUserRegistered;
 use Modules\User\Resources\UserResource;
 use Validator;
 use App\Traits\HasSocialLoginFeatures;
+use Throwable;
 
 class AuthController extends Controller
 {
@@ -109,16 +109,71 @@ class AuthController extends Controller
                 'publish'    => $request->input('publish'),
                 'phone'    => $request->input('phone'),
             ]);
-            event(new Registered($user));
-            //Auth::loginUsingId($user->id);
+            $user->assignRole('customer');
+            try {
+                event(new Registered($user));
+            } catch (Throwable $e) {
+                Log::warning('Registered event failed (e.g. verification email): '.$e->getMessage(), ['exception' => $e]);
+            }
             try {
                 event(new SendMailUserRegistered($user));
-            } catch (Exception $exception) {
-                Log::warning("SendMailUserRegistered: " . $exception->getMessage());
+            } catch (Throwable $e) {
+                Log::warning('SendMailUserRegistered: '.$e->getMessage(), ['exception' => $e]);
             }
-            $user->assignRole(setting_item('user_role'));
+            $user->refresh();
+
             return $this->sendSuccess(__('Register successfully'));
         }
+    }
+
+    /**
+     * Resend email verification link (JSON API, Sanctum Bearer).
+     * Body may be empty JSON. Same mail rules as web (site setting + mail config).
+     */
+    public function resendEmailVerification(Request $request)
+    {
+        $user = $request->user();
+
+        if ($user->hasVerifiedEmail()) {
+            return $this->sendSuccess([
+                'email_verified' => true,
+                'email_verified_at' => $user->email_verified_at?->toIso8601String(),
+            ], __('Your email is already verified.'));
+        }
+
+        if (! setting_verify_email_register_enabled()) {
+            return $this->sendError(__('Email verification is not enabled on this site.'), [
+                'code' => 'verification_disabled',
+            ]);
+        }
+
+        try {
+            $user->sendEmailVerificationNotification();
+        } catch (Throwable $e) {
+            Log::warning('resendEmailVerification: '.$e->getMessage(), ['exception' => $e]);
+            $data = ['code' => 'mail_failed'];
+            if (config('app.debug')) {
+                $data['debug_message'] = $e->getMessage();
+            }
+
+            return $this->sendError(__('We could not send the verification email. Please try again later.'), $data);
+        }
+
+        $payload = [
+            'email_verified' => false,
+            'sent' => true,
+            'mail_transport' => config('mail.default'),
+        ];
+        if (config('mail.default') === 'log') {
+            $payload['inbox_delivery'] = false;
+            $payload['notice'] = __(
+                'Mail is using the "log" driver: the message is written to the application log file, not to a real mailbox. Set SMTP, Mailgun, etc. in .env or Admin → Settings → Email to receive real email.'
+            );
+        } else {
+            $payload['inbox_delivery'] = true;
+        }
+
+        return $this->sendSuccess($payload, __('Verification link has been sent to your email address.'));
     }
 
     /**
@@ -130,9 +185,12 @@ class AuthController extends Controller
     {
         $user = auth()->user();
 
+        $user['profile_image'] = null;
+
         if(!empty($user['avatar_id'])){
             $user['avatar_url'] = get_file_url($user['avatar_id'],'full');
             $user['avatar_thumb_url'] = get_file_url($user['avatar_id']);
+            $user['profile_image'] = $user['avatar_url'];
         }
 
         return $this->sendSuccess([

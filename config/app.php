@@ -127,5 +127,6 @@ return [
 
     'version' => "4.0",
     'asset_version' => env('APP_ASSET_VERSION', '4.0'),
+    'frontend_home_url' => env('FRONTEND_HOME_URL', 'http://localhost:8080/'),
 
 ];

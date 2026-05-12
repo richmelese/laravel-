@@ -7,7 +7,7 @@ Route::group(['prefix'=>config('booking.booking_route_prefix')],function(){
 });
 
 
-Route::group(['prefix'=>'user/coupon','middleware' => ['auth','verified']],function(){
+Route::group(['prefix'=>'user/coupon','middleware' => ['auth:sanctum','verified']],function(){
     Route::get('/','CouponController@index')->name('coupon.vendor.index');
     Route::get('/create','CouponController@create')->name('coupon.vendor.create');
     Route::get('/edit/{id}','CouponController@edit')->name('coupon.vendor.edit');

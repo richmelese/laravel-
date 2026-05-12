@@ -5,6 +5,7 @@ namespace App\Providers;
 use Illuminate\Http\Request;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Config;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\ServiceProvider;
 use App\Providers\LivewireServiceProvider;
@@ -98,15 +99,14 @@ class AppServiceProvider extends ServiceProvider
             Config::set('mail.default', setting_item("email_driver"));
             switch (setting_item("email_driver")) {
                 case 'mailgun':
-                    if (!empty(setting_item('email_mailgun_domain'))) {
-                        Config::set('services.mailgun.domain', setting_item("email_mailgun_domain"));
-                    }
-                    if (!empty(setting_item('email_mailgun_secret'))) {
-                        Config::set('services.mailgun.secret', setting_item("email_mailgun_secret"));
-                    }
-                    if (!empty(setting_item('email_mailgun_endpoint'))) {
-                        Config::set('services.mailgun.endpoint', setting_item("email_mailgun_endpoint"));
-                    }
+                    $mailgunDefaults = config('services.mailgun', []);
+                    Config::set('services.mailgun', [
+                        'domain' => setting_item('email_mailgun_domain') ?: ($mailgunDefaults['domain'] ?? null),
+                        'secret' => setting_item('email_mailgun_secret') ?: ($mailgunDefaults['secret'] ?? null),
+                        'endpoint' => setting_item('email_mailgun_endpoint')
+                            ?: ($mailgunDefaults['endpoint'] ?? 'api.mailgun.net'),
+                        'scheme' => $mailgunDefaults['scheme'] ?? 'https',
+                    ]);
                     break;
                 case 'postmark':
                     if (!empty(setting_item('email_postmark_token'))) {
@@ -206,6 +206,69 @@ class AppServiceProvider extends ServiceProvider
                 Config::set('fortify.features', array_values($features));
             }
         }
+
+        // After DB + .env merge: Mailgun without domain+secret throws IncompleteDsnException ("User is not set.")
+        // on SendEmailVerificationNotification / any mail (e.g. signup).
+        $this->ensureMailgunMailerIsComplete();
+        $this->ensureLocalMailTransportFallback();
+    }
+
+    /**
+     * In local environment, avoid verification mail hard-failing when SMTP has no credentials
+     * or sendmail is used on Windows (common dev setups).
+     */
+    protected function ensureLocalMailTransportFallback(): void
+    {
+        if (! app()->environment('local')) {
+            return;
+        }
+        $default = config('mail.default');
+        if ($default === 'smtp') {
+            $smtp = config('mail.mailers.smtp', []);
+            $user = trim((string) ($smtp['username'] ?? ''));
+            $pass = trim((string) ($smtp['password'] ?? ''));
+            if ($user === '' && $pass === '') {
+                Log::warning('Local env: SMTP has no username/password; using log mailer so mail does not throw.');
+                Config::set('mail.default', 'log');
+
+                return;
+            }
+        }
+        if ($default === 'sendmail' && PHP_OS_FAMILY === 'Windows') {
+            Log::warning('Local env on Windows: sendmail is unreliable; using log mailer.');
+            Config::set('mail.default', 'log');
+        }
+    }
+
+    /**
+     * Symfony Mailgun transport requires domain + API key; missing values break every mail send.
+     */
+    protected function ensureMailgunMailerIsComplete(): void
+    {
+        if (config('mail.default') !== 'mailgun') {
+            return;
+        }
+        $mg = config('services.mailgun', []);
+        $domain = trim((string) ($mg['domain'] ?? ''));
+        $secret = trim((string) ($mg['secret'] ?? ''));
+        if ($domain !== '' && $secret !== '') {
+            return;
+        }
+        $fallback = $this->resolveFallbackMailDriverName();
+        Log::warning('Mailgun is configured but domain or API secret is empty; using mailer "'.$fallback.'" instead.');
+        Config::set('mail.default', $fallback);
+    }
+
+    protected function resolveFallbackMailDriverName(): string
+    {
+        foreach ([env('MAIL_MAILER'), env('MAIL_DRIVER')] as $candidate) {
+            $name = is_string($candidate) ? trim($candidate) : '';
+            if ($name !== '' && strtolower($name) !== 'mailgun') {
+                return $name;
+            }
+        }
+
+        return 'log';
     }
 
     protected function setLang()

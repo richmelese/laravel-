@@ -9,7 +9,6 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
-use Mockery\Exception;
 use Modules\Booking\Events\BookingCreatedEvent;
 use Modules\Booking\Events\BookingUpdatedEvent;
 use Modules\Booking\Events\EnquirySendEvent;
@@ -143,7 +142,7 @@ class BookingController extends \App\Http\Controllers\Controller
             return $this->sendError(__("You have to login in to do this"))->setStatusCode(401);
         }
 
-        if (auth()->user() && !auth()->user()->hasVerifiedEmail() && setting_item('enable_verify_email_register_user') == 1) {
+        if (auth()->user() && !auth()->user()->hasVerifiedEmail() && setting_verify_email_register_enabled()) {
             return $this->sendError(__("You have to verify email first"), ['url' => url('/email/verify')]);
         }
         /**
@@ -313,15 +312,14 @@ class BookingController extends \App\Http\Controllers\Controller
         }
 
         $gateways = get_payment_gateways();
+        $gatewayObj = null;
         if ($booking->pay_now > 0) {
             $gatewayObj = $gateways[$payment_gateway] ?? null;
-            if (!empty($rules['payment_gateway'])) {
-                if (empty($gatewayObj)) {
-                    return $this->sendError(__("Payment gateway not found"));
-                }
-                if (!$gatewayObj->isAvailable()) {
-                    return $this->sendError(__("Payment gateway is not available"));
-                }
+            if (empty($gatewayObj)) {
+                return $this->sendError(__("Payment gateway not found"));
+            }
+            if (!$gatewayObj->isAvailable()) {
+                return $this->sendError(__("Payment gateway is not available"));
             }
         }
 
@@ -375,7 +373,7 @@ class BookingController extends \App\Http\Controllers\Controller
             } catch (\Matrix\Exception $exception) {
                 Log::warning("SendMailUserRegistered: " . $exception->getMessage());
             }
-            $user->assignRole(setting_item('user_role'));
+            $user->assignRole('customer');
         }
 
         $booking->addMeta('locale', app()->getLocale());
@@ -392,8 +390,15 @@ class BookingController extends \App\Http\Controllers\Controller
 
         if ($booking->pay_now > 0) {
             try {
-                $gatewayObj->process($request, $booking, $service);
-            } catch (Exception $exception) {
+                $gatewayResponse = $gatewayObj->process($request, $booking, $service);
+                if ($gatewayResponse) {
+                    return $gatewayResponse;
+                }
+
+                return $this->sendSuccess([
+                    'url' => $booking->getDetailUrl(false),
+                ], __("Checkout started"));
+            } catch (\Throwable $exception) {
                 return $this->sendError($exception->getMessage());
             }
         } else {

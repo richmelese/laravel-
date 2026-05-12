@@ -2,6 +2,7 @@
 namespace Modules\News\Admin;
 
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Modules\AdminController;
 use Modules\Language\Models\Language;
 use Modules\News\Models\NewsCategory;
@@ -10,6 +11,12 @@ use Modules\News\Models\NewsTranslation;
 
 class NewsController extends AdminController
 {
+    protected function bumpNewsApiCacheVersion(): void
+    {
+        Cache::add('api_cache:news:version', 1);
+        Cache::increment('api_cache:news:version');
+    }
+
     protected function isApiRequest(Request $request): bool
     {
         return $request->wantsJson() || $request->is('api-admin/*');
@@ -168,6 +175,7 @@ class NewsController extends AdminController
             if(is_default_lang($request->query('lang'))){
                 $row->saveTag($request->input('tag_name'), $request->input('tag_ids'));
             }
+            $this->bumpNewsApiCacheVersion();
             if($id > 0 ){
                 if ($this->isApiRequest($request)) {
                     return response()->json(['message' => __('News updated'), 'data' => $row]);
@@ -217,6 +225,7 @@ class NewsController extends AdminController
                     $query->delete();
                 }
             }
+            $this->bumpNewsApiCacheVersion();
         } else {
             foreach ($ids as $id) {
                 $query = News::where("id", $id);
@@ -226,6 +235,7 @@ class NewsController extends AdminController
                 }
                 $query->update(['status' => $action]);
             }
+            $this->bumpNewsApiCacheVersion();
         }
         if ($this->isApiRequest($request)) {
             return response()->json(['message' => __('Update success!')]);

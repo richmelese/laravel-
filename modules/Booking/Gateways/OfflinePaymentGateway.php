@@ -35,7 +35,7 @@ class OfflinePaymentGateway extends BaseGateway
         $service->afterPaymentProcess($booking, $this);
         return response()->json([
             'url' => $booking->getDetailUrl()
-        ])->send();
+        ]);
     }
 
     public function processNormal($payment)

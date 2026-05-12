@@ -62,6 +62,20 @@ class ModuleProvider extends ModuleServiceProvider
             ->group(function () {
                 $this->loadRoutesFrom(__DIR__ . '/Routes/admin.php');
             });
+
+        // Admin API
+        Route::middleware(['api', 'auth:sanctum'])
+            ->prefix('api-admin')
+            ->group(function () {
+                $this->loadRoutesFrom(__DIR__ . '/Routes/api-admin.php');
+            });
+
+        // Backward-compatible alias for clients using /api/admin/*
+        Route::middleware(['api', 'auth:sanctum'])
+            ->prefix('api/admin')
+            ->group(function () {
+                $this->loadRoutesFrom(__DIR__ . '/Routes/api-admin.php');
+            });
     }
 
 

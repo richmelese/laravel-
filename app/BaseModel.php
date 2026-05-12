@@ -14,6 +14,10 @@ use Modules\Media\Helpers\FileHelper;
 
 class BaseModel extends Model
 {
+    /**
+     * @var array<string,string|null>
+     */
+    protected static array $galleryUrlRuntimeCache = [];
     use HasStatus;
     use HasTranslations;
 
@@ -280,14 +284,15 @@ class BaseModel extends Model
         $list_item = [];
         if ($featuredIncluded and $this->image_id) {
             $list_item[] = [
-                'large' => FileHelper::url($this->image_id, 'full'),
-                'thumb' => FileHelper::url($this->image_id, 'thumb')
+                'large' => $this->resolveGalleryFileUrl((int) $this->image_id, 'full'),
+                'thumb' => $this->resolveGalleryFileUrl((int) $this->image_id, 'thumb')
             ];
         }
         $items = explode(",", $this->gallery);
         foreach ($items as $k => $item) {
-            $large = FileHelper::url($item, 'full');
-            $thumb = FileHelper::url($item, 'thumb');
+            $id = (int) $item;
+            $large = $this->resolveGalleryFileUrl($id, 'full');
+            $thumb = $this->resolveGalleryFileUrl($id, 'thumb');
             if(!empty($large)){
                 $list_item[] = [
                     'large' => $large,
@@ -296,6 +301,21 @@ class BaseModel extends Model
             }
         }
         return $list_item;
+    }
+
+    protected function resolveGalleryFileUrl(int $id, string $size): ?string
+    {
+        if ($id <= 0) {
+            return null;
+        }
+        $cacheKey = $id . ':' . $size;
+        if (array_key_exists($cacheKey, self::$galleryUrlRuntimeCache)) {
+            return self::$galleryUrlRuntimeCache[$cacheKey];
+        }
+
+        self::$galleryUrlRuntimeCache[$cacheKey] = FileHelper::url($id, $size) ?: null;
+
+        return self::$galleryUrlRuntimeCache[$cacheKey];
     }
 
     public static function boot() {

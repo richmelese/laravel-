@@ -12,6 +12,7 @@ use Illuminate\Support\MessageBag;
 use Illuminate\Validation\Rules\Password;
 use Matrix\Exception;
 use Modules\FrontendController;
+use Modules\Booking\Gateways\ChapaGateway;
 use Modules\User\Events\NewVendorRegistered;
 use Modules\User\Events\SendMailUserRegistered;
 use Modules\Vendor\Models\VendorRequest;
@@ -120,7 +121,7 @@ class VendorController extends FrontendController
                 $dataVendor['approved_time'] = now();
             } else {
                 $dataVendor['status'] = 'pending';
-                $user->assignRole(setting_item('user_role'));
+                $user->assignRole('customer');
             }
             $vendorRequestData = $user->vendorRequest()->save(new VendorRequest($dataVendor));
             Auth::loginUsingId($user->id);
@@ -155,5 +156,69 @@ class VendorController extends FrontendController
             'page_title'  => __("Booking Report"),
         ];
         return view('Vendor::frontend.bookingReport.index', $data);
+    }
+
+    /**
+     * Render the Chapa subaccount settings page for the current vendor.
+     */
+    public function chapaSettings()
+    {
+        $this->checkPermission('dashboard_vendor_access');
+
+        $gateway = $this->getChapaGateway();
+        $user = Auth::user();
+
+        $data = [
+            'page_title'    => __('Chapa Split Payment'),
+            'breadcrumbs'   => [
+                [
+                    'name' => __('Vendor dashboard'),
+                    'url'  => url('/user/dashboard'),
+                ],
+                [
+                    'name'  => __('Chapa Split Payment'),
+                    'class' => 'active',
+                ],
+            ],
+            'gateway'       => $gateway,
+            'banks'         => $gateway ? $gateway->getBanks() : [],
+            'subaccount_id' => (string) $user->getMeta('chapa_subaccount_id'),
+            'form'          => [
+                'business_name'  => (string) ($user->getMeta('chapa_business_name') ?: $user->business_name),
+                'account_name'   => (string) ($user->getMeta('chapa_account_name') ?: trim(($user->first_name ?? '') . ' ' . ($user->last_name ?? ''))),
+                'bank_code'      => (string) $user->getMeta('chapa_bank_code'),
+                'account_number' => (string) $user->getMeta('chapa_account_number'),
+                'split_type'     => (string) ($user->getMeta('chapa_split_type') ?: 'percentage'),
+                'split_value'    => (string) $user->getMeta('chapa_split_value'),
+            ],
+            'currentUser'   => $user,
+        ];
+
+        return view('Vendor::frontend.chapa.settings', $data);
+    }
+
+    /**
+     * Subaccount creation is handled only when an administrator saves the
+     * vendor user in the admin panel; vendors cannot POST here.
+     */
+    public function updateChapaSettings(Request $request)
+    {
+        $this->checkPermission('dashboard_vendor_access');
+
+        return response()->json([
+            'status'  => 0,
+            'message' => __('Chapa settlement is configured by your site administrator in the admin user screen. This form is read-only.'),
+        ], 403);
+    }
+
+    /**
+     * Resolve the configured Chapa gateway instance, or null if unavailable.
+     *
+     * @return ChapaGateway|null
+     */
+    protected function getChapaGateway(): ?ChapaGateway
+    {
+        $obj = get_payment_gateway_obj('chapa');
+        return $obj instanceof ChapaGateway ? $obj : null;
     }
 }

@@ -6,7 +6,7 @@ Route::group(['prefix'=>config('property.property_route_prefix')],function(){
 });
 
 
-Route::group(['prefix'=>'user/'.config('property.property_route_prefix'),'middleware' => ['auth','verified']],function(){
+Route::group(['prefix'=>'user/'.config('property.property_route_prefix'),'middleware' => ['auth:sanctum','verified']],function(){
     Route::match(['get'],'/','ManagePropertyController@manageProperty')->name('property.vendor.index');
     Route::match(['get'],'/create','ManagePropertyController@createProperty')->name('property.vendor.create');
     Route::match(['get'],'/edit/{id}','ManagePropertyController@editProperty')->name('property.vendor.edit');
@@ -19,7 +19,7 @@ Route::group(['prefix'=>'user/'.config('property.property_route_prefix'),'middle
 	Route::get('clone/{id}','ManagePropertyController@cloneProperty')->name("property.vendor.clone");
 });
 
-Route::group(['prefix'=>'user/'.config('property.property_route_prefix')],function(){
+Route::group(['prefix'=>'user/'.config('property.property_route_prefix'),'middleware' => ['auth:sanctum','verified']],function(){
     Route::group(['prefix'=>'availability'],function(){
         Route::get('/','AvailabilityController@index')->name('property.vendor.availability.index');
         Route::get('/loadDates','AvailabilityController@loadDates')->name('property.vendor.availability.loadDates');

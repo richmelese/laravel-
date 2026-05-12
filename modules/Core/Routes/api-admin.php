@@ -1,0 +1,73 @@
+<?php
+
+use Illuminate\Support\Facades\Route;
+
+Route::group(['prefix' => 'notifications'], function () {
+    Route::get('/', 'NotificationController@indexApi')->name('api_admin.notifications.index');
+    Route::get('/{id}', 'NotificationController@showApi')->name('api_admin.notifications.show')->where('id', '[0-9]+');
+    Route::post('/markAsRead', 'NotificationController@markAsRead')->name('api_admin.notifications.markAsRead');
+    Route::post('/markAllAsRead', 'NotificationController@markAllAsRead')->name('api_admin.notifications.markAllAsRead');
+});
+
+Route::group(['prefix' => 'settings'], function () {
+    Route::get('/payment', 'SettingsApiController@payment')->name('api_admin.settings.payment');
+    Route::put('/payment', 'SettingsApiController@updatePayment')->name('api_admin.settings.payment.update');
+    Route::patch('/payment', 'SettingsApiController@updatePayment')->name('api_admin.settings.payment.patch');
+    Route::get('/hotel', 'SettingsApiController@hotel')->name('api_admin.settings.hotel');
+    Route::put('/hotel', 'SettingsApiController@updateHotel')->name('api_admin.settings.hotel.update');
+    Route::patch('/hotel', 'SettingsApiController@updateHotel')->name('api_admin.settings.hotel.patch');
+    Route::get('/space', 'SettingsApiController@space')->name('api_admin.settings.space');
+    Route::put('/space', 'SettingsApiController@updateSpace')->name('api_admin.settings.space.update');
+    Route::patch('/space', 'SettingsApiController@updateSpace')->name('api_admin.settings.space.patch');
+    Route::get('/car', 'SettingsApiController@car')->name('api_admin.settings.car');
+    Route::put('/car', 'SettingsApiController@updateCar')->name('api_admin.settings.car.update');
+    Route::patch('/car', 'SettingsApiController@updateCar')->name('api_admin.settings.car.patch');
+    Route::get('/event', 'SettingsApiController@event')->name('api_admin.settings.event');
+    Route::put('/event', 'SettingsApiController@updateEvent')->name('api_admin.settings.event.update');
+    Route::patch('/event', 'SettingsApiController@updateEvent')->name('api_admin.settings.event.patch');
+    Route::get('/tour', 'SettingsApiController@tour')->name('api_admin.settings.tour');
+    Route::put('/tour', 'SettingsApiController@updateTour')->name('api_admin.settings.tour.update');
+    Route::patch('/tour', 'SettingsApiController@updateTour')->name('api_admin.settings.tour.patch');
+    Route::get('/boat', 'SettingsApiController@boat')->name('api_admin.settings.boat');
+    Route::put('/boat', 'SettingsApiController@updateBoat')->name('api_admin.settings.boat.update');
+    Route::patch('/boat', 'SettingsApiController@updateBoat')->name('api_admin.settings.boat.patch');
+    Route::get('/news', 'SettingsApiController@news')->name('api_admin.settings.news');
+    Route::put('/news', 'SettingsApiController@updateNews')->name('api_admin.settings.news.update');
+    Route::patch('/news', 'SettingsApiController@updateNews')->name('api_admin.settings.news.patch');
+    Route::get('/booking', 'SettingsApiController@booking')->name('api_admin.settings.booking');
+    Route::put('/booking', 'SettingsApiController@updateBooking')->name('api_admin.settings.booking.update');
+    Route::patch('/booking', 'SettingsApiController@updateBooking')->name('api_admin.settings.booking.patch');
+    Route::get('/enquiry', 'SettingsApiController@enquiry')->name('api_admin.settings.enquiry');
+    Route::put('/enquiry', 'SettingsApiController@updateEnquiry')->name('api_admin.settings.enquiry.update');
+    Route::patch('/enquiry', 'SettingsApiController@updateEnquiry')->name('api_admin.settings.enquiry.patch');
+    Route::get('/user', 'SettingsApiController@user')->name('api_admin.settings.user');
+    Route::put('/user', 'SettingsApiController@updateUser')->name('api_admin.settings.user.update');
+    Route::patch('/user', 'SettingsApiController@updateUser')->name('api_admin.settings.user.patch');
+    Route::get('/vendor', 'SettingsApiController@vendor')->name('api_admin.settings.vendor');
+    Route::put('/vendor', 'SettingsApiController@updateVendor')->name('api_admin.settings.vendor.update');
+    Route::patch('/vendor', 'SettingsApiController@updateVendor')->name('api_admin.settings.vendor.patch');
+    Route::get('/style', 'SettingsApiController@style')->name('api_admin.settings.style');
+    Route::put('/style', 'SettingsApiController@updateStyle')->name('api_admin.settings.style.update');
+    Route::patch('/style', 'SettingsApiController@updateStyle')->name('api_admin.settings.style.patch');
+    Route::get('/solo_tour', 'SettingsApiController@soloTour')->name('api_admin.settings.solo_tour');
+    Route::put('/solo_tour', 'SettingsApiController@updateSoloTour')->name('api_admin.settings.solo_tour.update');
+    Route::patch('/solo_tour', 'SettingsApiController@updateSoloTour')->name('api_admin.settings.solo_tour.patch');
+    Route::get('/advance', 'SettingsApiController@advance')->name('api_admin.settings.advance');
+    Route::put('/advance', 'SettingsApiController@updateAdvance')->name('api_admin.settings.advance.update');
+    Route::patch('/advance', 'SettingsApiController@updateAdvance')->name('api_admin.settings.advance.patch');
+    Route::get('/media', 'SettingsApiController@media')->name('api_admin.settings.media');
+    Route::put('/media', 'SettingsApiController@updateMedia')->name('api_admin.settings.media.update');
+    Route::patch('/media', 'SettingsApiController@updateMedia')->name('api_admin.settings.media.patch');
+    Route::get('/email', 'SettingsApiController@email')->name('api_admin.settings.email');
+    Route::put('/email', 'SettingsApiController@updateEmail')->name('api_admin.settings.email.update');
+    Route::patch('/email', 'SettingsApiController@updateEmail')->name('api_admin.settings.email.patch');
+    Route::get('/sms', 'SettingsApiController@sms')->name('api_admin.settings.sms');
+    Route::put('/sms', 'SettingsApiController@updateSms')->name('api_admin.settings.sms.update');
+    Route::patch('/sms', 'SettingsApiController@updateSms')->name('api_admin.settings.sms.patch');
+    Route::get('/support', 'SettingsApiController@support')->name('api_admin.settings.support');
+    Route::put('/support', 'SettingsApiController@updateSupport')->name('api_admin.settings.support.update');
+    Route::patch('/support', 'SettingsApiController@updateSupport')->name('api_admin.settings.support.patch');
+    Route::get('/review', 'SettingsApiController@review')->name('api_admin.settings.review');
+    Route::put('/review', 'SettingsApiController@updateReview')->name('api_admin.settings.review.update');
+    Route::patch('/review', 'SettingsApiController@updateReview')->name('api_admin.settings.review.patch');
+});

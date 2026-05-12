@@ -7,7 +7,7 @@ Route::group(['prefix'=>config('space.space_route_prefix')],function(){
 });
 
 
-Route::group(['prefix'=>'user/'.config('space.space_route_prefix'),'middleware' => ['auth','verified']],function(){
+Route::group(['prefix'=>'user/'.config('space.space_route_prefix'),'middleware' => ['auth:sanctum','verified']],function(){
     Route::get('/','ManageSpaceController@manageSpace')->name('space.vendor.index');
     Route::get('/create','ManageSpaceController@createSpace')->name('space.vendor.create');
     Route::get('/edit/{id}','ManageSpaceController@editSpace')->name('space.vendor.edit');
@@ -20,7 +20,7 @@ Route::group(['prefix'=>'user/'.config('space.space_route_prefix'),'middleware' 
     Route::get('/restore/{id}','ManageSpaceController@restore')->name('space.vendor.restore');
 });
 
-Route::group(['prefix'=>'user/'.config('space.space_route_prefix')],function(){
+Route::group(['prefix'=>'user/'.config('space.space_route_prefix'),'middleware' => ['auth:sanctum','verified']],function(){
     Route::group(['prefix'=>'availability'],function(){
         Route::get('/','AvailabilityController@index')->name('space.vendor.availability.index');
         Route::get('/loadDates','AvailabilityController@loadDates')->name('space.vendor.availability.loadDates');

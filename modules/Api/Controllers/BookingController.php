@@ -6,6 +6,7 @@ use Modules\Booking\Models\Booking;
 use Modules\Booking\Models\Enquiry;
 use Modules\Template\Models\Template;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Facades\Cache;
 
 class BookingController extends \Modules\Booking\Controllers\BookingController
 {
@@ -13,7 +14,20 @@ class BookingController extends \Modules\Booking\Controllers\BookingController
     {
         parent::__construct($booking, $enquiryClass);
         $this->middleware('auth:sanctum')->except([
-            'detail','getConfigs','getHomeLayout','getTypes','cancelPayment','thankyou'
+            'detail',
+            'getConfigs',
+            'getHomeLayout',
+            'getTypes',
+            'cancelPayment',
+            'thankyou',
+            // Guest booking / enquiry (no login; JSON from SPA / mobile)
+            'addEnquiry',
+            'addToCart',
+            'doCheckout',
+            'confirmPayment',
+            'checkout',
+            'checkStatusCheckout',
+            'getGatewaysForApi',
         ]);
     }
     public function getTypes(){
@@ -34,49 +48,60 @@ class BookingController extends \Modules\Booking\Controllers\BookingController
     }
 
     public function getConfigs(){
-        $languages = \Modules\Language\Models\Language::getActive();
+        $cacheKey = sprintf(
+            'api:configs:%s:%s',
+            session('website_locale', app()->getLocale()),
+            \App\Currency::getCurrent('currency_main')
+        );
 
-        $socialLogins = [];
-        if(setting_item('facebook_client_id') && setting_item('facebook_client_secret')){
-            $socialLogins['facebook'] = [
-                'client_id'=>setting_item('facebook_client_id'),
-            ];
-        }
-        if(setting_item('google_client_id') && setting_item('google_client_secret')){
-            $socialLogins['google'] = [
-                'client_id'=>setting_item('google_client_id'),
-            ];
-        }
+        $res = Cache::remember($cacheKey, now()->addMinutes(5), function () {
+            $languages = \Modules\Language\Models\Language::getActive();
 
-        // x
-        if(setting_item('twitter_client_id') && setting_item('twitter_client_secret')){
-            $socialLogins['twitter'] = [
-                'client_id'=>setting_item('twitter_client_id'),
-            ];
-        }
-        // apple
-        if(setting_item('apple_client_id') && setting_item('apple_client_secret')){
-            $socialLogins['apple'] = [
-                'client_id'=>setting_item('apple_client_id'),
-            ];
-        }
+            $socialLogins = [];
+            if (setting_item('facebook_client_id') && setting_item('facebook_client_secret')) {
+                $socialLogins['facebook'] = [
+                    'client_id' => setting_item('facebook_client_id'),
+                ];
+            }
+            if (setting_item('google_client_id') && setting_item('google_client_secret')) {
+                $socialLogins['google'] = [
+                    'client_id' => setting_item('google_client_id'),
+                ];
+            }
 
-        $res = [
-            'languages'=>$languages->map(function($lang){
-                return $lang->only(['locale','name']);
-            }),
-            'booking_types'=>$this->getTypes(),
-            'is_enable_guest_checkout'=>(int)is_enable_guest_checkout(),
-            'service_search_forms' => [],
-            'locale'=>  session('website_locale',app()->getLocale()),
-            'currency_main'=> \App\Currency::getCurrent('currency_main'),
-            'currency' => $this->getCurrency(),
-            'social_login'=>$socialLogins,
-        ];
-        $all_service = get_bookable_services();
-        foreach ( $all_service as $key => $class){
-            $res['service_search_forms'][$key] = call_user_func([$class,'getFormSearch'],request());
-        }
+            // x
+            if (setting_item('twitter_client_id') && setting_item('twitter_client_secret')) {
+                $socialLogins['twitter'] = [
+                    'client_id' => setting_item('twitter_client_id'),
+                ];
+            }
+            // apple
+            if (setting_item('apple_client_id') && setting_item('apple_client_secret')) {
+                $socialLogins['apple'] = [
+                    'client_id' => setting_item('apple_client_id'),
+                ];
+            }
+
+            $res = [
+                'languages' => $languages->map(function ($lang) {
+                    return $lang->only(['locale', 'name']);
+                }),
+                'booking_types' => $this->getTypes(),
+                'is_enable_guest_checkout' => (int) is_enable_guest_checkout(),
+                'service_search_forms' => [],
+                'locale' => session('website_locale', app()->getLocale()),
+                'currency_main' => \App\Currency::getCurrent('currency_main'),
+                'currency' => $this->getCurrency(),
+                'social_login' => $socialLogins,
+            ];
+            $all_service = get_bookable_services();
+            foreach ($all_service as $key => $class) {
+                $res['service_search_forms'][$key] = call_user_func([$class, 'getFormSearch'], request());
+            }
+
+            return $res;
+        });
+
         return $this->sendSuccess($res);
     }
 
@@ -167,9 +192,17 @@ class BookingController extends \Modules\Booking\Controllers\BookingController
         $res = [];
         $gateways = get_available_gateways();
         foreach ($gateways as $gateway=>$obj){
+            $displayName = $obj->getDisplayName();
+            if (is_string($displayName)) {
+                $decodedName = json_decode($displayName, true);
+                if (json_last_error() === JSON_ERROR_NONE && is_array($decodedName)) {
+                    $displayName = (string) ($decodedName[app()->getLocale()] ?? $decodedName['en'] ?? reset($decodedName) ?? $displayName);
+                }
+            }
+
             $res[$gateway] = [
                 'logo'=>$obj->getDisplayLogo(),
-                'name'=>$obj->getDisplayName(),
+                'name'=>$displayName,
                 'desc'=>$obj->getApiDisplayHtml(),
             ];
             if($option = $obj->getForm()){

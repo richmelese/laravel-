@@ -15,7 +15,7 @@ class ContactController extends Controller
 {
     public function __construct()
     {
-
+        $this->middleware('throttle:30,1')->only('store');
     }
 
     public function index(Request $request)
@@ -36,16 +36,25 @@ class ContactController extends Controller
 
     public function store(Request $request)
     {
-        $request->validate([
+        $validator = Validator::make($request->all(), [
             'email'   => [
                 'required',
                 'max:255',
-                'email'
+                'email',
             ],
-            'name'    => ['required'],
-            'phone'    => ['required'],
-            'message' => ['required']
+            'name' => ['required'],
+            'phone' => ['required'],
+            'message' => ['required'],
         ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'status' => 0,
+                'message' => $validator->errors()->first(),
+                'errors' => $validator->errors(),
+            ], 422);
+        }
+
         /**
          * Google ReCapcha
          */
@@ -69,6 +78,11 @@ class ContactController extends Controller
             ];
             return response()->json($data, 200);
         }
+
+        return response()->json([
+            'status' => 0,
+            'message' => __('Something went wrong — please try again.'),
+        ], 500);
     }
 
     protected function sendEmail($contact){

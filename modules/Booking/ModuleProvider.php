@@ -17,6 +17,7 @@ use Modules\Booking\Gateways\PaypalGateway;
 use Modules\Booking\Gateways\StripeCheckoutGateway;
 use Modules\Booking\Gateways\PaystackGateway;
 use Modules\Booking\Gateways\PayrexxGateway;
+use Modules\Booking\Gateways\ChapaGateway;
 
 class ModuleProvider extends ModuleServiceProvider
 {
@@ -37,6 +38,7 @@ class ModuleProvider extends ModuleServiceProvider
         PaymentGatewayManager::register('stripe', StripeCheckoutGateway::class);
         PaymentGatewayManager::register('paystack', PaystackGateway::class);
         PaymentGatewayManager::register('payrexx', PayrexxGateway::class);
+        PaymentGatewayManager::register('chapa', ChapaGateway::class);
 
     }
 

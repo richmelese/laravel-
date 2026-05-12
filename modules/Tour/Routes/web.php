@@ -11,7 +11,7 @@
 */
 use Illuminate\Support\Facades\Route;
 // Vendor Manage Tour
-Route::group(['prefix'=>'user/'.config('tour.tour_route_prefix'),'middleware' => ['auth','verified']],function(){
+Route::group(['prefix'=>'user/'.config('tour.tour_route_prefix'),'middleware' => ['auth:sanctum','verified']],function(){
     Route::get('/','ManageTourController@manageTour')->name('tour.vendor.index');
     Route::get('/create','ManageTourController@createTour')->name('tour.vendor.create');
     Route::get('/edit/{id}','ManageTourController@editTour')->name('tour.vendor.edit');
@@ -23,7 +23,7 @@ Route::group(['prefix'=>'user/'.config('tour.tour_route_prefix'),'middleware' =>
     Route::get('/recovery','ManageTourController@recovery')->name('tour.vendor.recovery');
     Route::get('/restore/{id}','ManageTourController@restore')->name('tour.vendor.restore');
 });
-Route::group(['prefix'=>'user/'.config('tour.tour_route_prefix')],function(){
+Route::group(['prefix'=>'user/'.config('tour.tour_route_prefix'),'middleware' => ['auth:sanctum','verified']],function(){
     Route::group(['prefix'=>'availability'],function(){
         Route::get('/','AvailabilityController@index')->name('tour.vendor.availability.index');
         Route::get('/loadDates','AvailabilityController@loadDates')->name('tour.vendor.availability.loadDates');

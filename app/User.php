@@ -72,6 +72,7 @@ class User extends Authenticatable implements MustVerifyEmail
         'bio',
         'business_name',
         'status',
+        'role_id',
     ];
 
     protected $attributes = [
@@ -403,8 +404,8 @@ class User extends Authenticatable implements MustVerifyEmail
 
     public function sendEmailVerificationNotification()
     {
-        $mustVerify = setting_item('enable_verify_email_register_user');
-        if ($mustVerify == 1) {
+        $mustVerify = setting_verify_email_register_enabled();
+        if ($mustVerify) {
             $actionUrl = $this->verificationUrl();
             Mail::to($this->email)->send(new EmailUserVerifyRegister($this, $actionUrl));
         }

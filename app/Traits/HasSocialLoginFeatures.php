@@ -63,7 +63,7 @@ trait HasSocialLoginFeatures
             $realUser->addMeta('social_' . $provider . '_avatar', $socialUser->getAvatar());
             $realUser->addMeta('social_meta_avatar', $socialUser->getAvatar());
 
-            $realUser->assignRole(setting_item('user_role'));
+            $realUser->assignRole('customer');
 
             try {
                 event(new SendMailUserRegistered($realUser));

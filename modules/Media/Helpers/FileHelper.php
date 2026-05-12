@@ -6,6 +6,13 @@ use Modules\Media\Models\MediaFile;
 
 class FileHelper
 {
+    /**
+     * Runtime request cache for media URL resolution.
+     *
+     * @var array<string,string|false>
+     */
+    protected static array $urlRuntimeCache = [];
+
     public static $defaultSize = [
         'thumb' => [
             150,
@@ -37,12 +44,25 @@ class FileHelper
 
     public static function url($fileId, $size = 'medium', $resize = true)
     {
+        $cacheKey = null;
+        if ($fileId instanceof MediaFile) {
+            $cacheKey = 'obj:' . $fileId->id . ':' . $size;
+        } elseif (is_numeric($fileId)) {
+            $cacheKey = 'id:' . (int) $fileId . ':' . $size;
+        }
+        if ($cacheKey !== null && array_key_exists($cacheKey, self::$urlRuntimeCache)) {
+            return self::$urlRuntimeCache[$cacheKey];
+        }
+
         if ($fileId instanceof MediaFile) {
             $file = $fileId;
         } else {
             $file = (new MediaFile())->findById($fileId);
         }
         if (empty($file)) {
+            if ($cacheKey !== null) {
+                self::$urlRuntimeCache[$cacheKey] = false;
+            }
             return false;
         }
         switch ($file->driver) {
@@ -52,8 +72,15 @@ class FileHelper
                 if ($cdn_url) {
                     $width = static::$defaultSize[$size][0] ?? static::$defaultSize['medium'][0];
                     if ($width == 'full') $width = '';
-                    return $cdn_url . '/' . ($width ? 'width=' . $width : '') . ',quality=70,f=auto/uploads/' . $file->file_path;
+                    $resolved = $cdn_url . '/' . ($width ? 'width=' . $width : '') . ',quality=70,f=auto/uploads/' . $file->file_path;
+                    if ($cacheKey !== null) {
+                        self::$urlRuntimeCache[$cacheKey] = $resolved;
+                    }
+                    return $resolved;
                 }
+        }
+        if ($cacheKey !== null) {
+            self::$urlRuntimeCache[$cacheKey] = $url;
         }
         return $url;
     }

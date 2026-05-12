@@ -74,6 +74,16 @@ class ModuleProvider extends ModuleServiceProvider
                 'permission' => 'dashboard_vendor_access',
             ];
         }
+
+        if (setting_item('g_chapa_enable')) {
+            $res['chapa_subaccount'] = [
+                'url'        => route('vendor.chapa.settings'),
+                'title'      => __('Chapa Split Payment'),
+                'icon'       => 'icon ion-md-git-branch',
+                'position'   => 95,
+                'permission' => 'dashboard_vendor_access',
+            ];
+        }
         if(is_enable_vendor_team()){
 
             $res['team']= [

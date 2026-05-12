@@ -10,7 +10,7 @@ Route::group(['prefix'=>config('flight.flight_route_prefix')],function(){
 });
 
 
-Route::group(['prefix'=>'user/'.config('flight.flight_route_prefix'),'middleware' => ['auth','verified']],function(){
+Route::group(['prefix'=>'user/'.config('flight.flight_route_prefix'),'middleware' => ['auth:sanctum','verified']],function(){
     Route::get('/','ManageFlightController@manageFlight')->name('flight.vendor.index');
     Route::get('/create','ManageFlightController@createFlight')->name('flight.vendor.create');
     Route::get('/edit/{id}','ManageFlightController@editFlight')->name('flight.vendor.edit');

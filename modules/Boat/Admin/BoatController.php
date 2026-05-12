@@ -49,11 +49,64 @@ class BoatController extends AdminController
         return $request->wantsJson() || $request->is('api-admin/*');
     }
 
+    protected function isBusAliasRequest(Request $request): bool
+    {
+        return $request->is('api-admin/bus*') || $request->is('api/admin/bus*');
+    }
+
+    protected function normalizeBusPayload(Request $request): void
+    {
+        if (!$this->isBusAliasRequest($request)) {
+            return;
+        }
+
+        $mapped = [
+            'title' => $request->input('name'),
+            // Boat module requires one or both pricing fields; map generic bus price.
+            'price_per_day' => $request->input('price'),
+            'price_per_hour' => $request->input('price'),
+            'max_guest' => $request->input('seat_capacity'),
+            'status' => $request->input('status') === 'active' ? 'publish' : ($request->input('status') ?: 'draft'),
+            'address' => $request->input('departure_location'),
+            // Keep searchable bus metadata in content/specs while reusing boat schema.
+            'content' => $request->input('content') ?: json_encode([
+                'bus_number' => $request->input('bus_number'),
+                'bus_type' => $request->input('bus_type'),
+                'driver_name' => $request->input('driver_name'),
+                'driver_phone' => $request->input('driver_phone'),
+                'departure_city' => $request->input('departure_city'),
+                'arrival_city' => $request->input('arrival_city'),
+                'departure_location' => $request->input('departure_location'),
+                'arrival_location' => $request->input('arrival_location'),
+                'departure_time' => $request->input('departure_time'),
+                'arrival_time' => $request->input('arrival_time'),
+                'image_url' => $request->input('image_url'),
+                'gallery' => $request->input('gallery', []),
+                'is_active' => $request->input('is_active'),
+            ]),
+        ];
+
+        // Mark records created via /bus and /buses so list endpoints can be separated.
+        $marker = '__vehicle_type:bus__';
+        $existingTermsInfo = (string) $request->input('terms_information', '');
+        if (strpos($existingTermsInfo, $marker) === false) {
+            $mapped['terms_information'] = trim($existingTermsInfo . ' ' . $marker);
+        }
+
+        // Only merge non-null mapped keys to avoid unintentionally overwriting fields.
+        $request->merge(array_filter($mapped, function ($value) {
+            return !is_null($value);
+        }));
+    }
+
     public function index(Request $request)
     {
         $this->checkPermission('boat_view');
         $query = $this->boat::query();
         $query->orderBy('id', 'desc');
+        if ($this->isBusAliasRequest($request)) {
+            $query->where('terms_information', 'like', '%__vehicle_type:bus__%');
+        }
         if (!empty($s = $request->input('s'))) {
             $query->where('title', 'LIKE', '%' . $s . '%');
             $query->orderBy('title', 'asc');
@@ -107,6 +160,9 @@ class BoatController extends AdminController
         $this->checkPermission('boat_view');
         $query = $this->boat::onlyTrashed();
         $query->orderBy('id', 'desc');
+        if ($this->isBusAliasRequest($request)) {
+            $query->where('terms_information', 'like', '%__vehicle_type:bus__%');
+        }
         if (!empty($s = $request->input('s'))) {
             $query->where('title', 'LIKE', '%' . $s . '%');
             $query->orderBy('title', 'asc');
@@ -241,8 +297,10 @@ class BoatController extends AdminController
         return view('Boat::admin.detail', $data);
     }
 
-    public function store(Request $request, $id)
+    public function store(Request $request, $id = 0)
     {
+        $this->normalizeBusPayload($request);
+
         if(is_demo_mode()){
             if ($this->isApiRequest($request)) {
                 return response()->json(['message' => __("DEMO MODE: can not add data")], 403);
@@ -273,6 +331,7 @@ class BoatController extends AdminController
             $this->checkPermission('boat_create');
             $row = new $this->boat();
             $row->status = "publish";
+            $row->author_id = Auth::id();
         }
         $dataKeys = [
             'title',
@@ -313,6 +372,10 @@ class BoatController extends AdminController
             $dataKeys[] = 'author_id';
         }
         $row->fillByAttr($dataKeys, $request->input());
+        // Ensure author ownership is always set for newly created records.
+        if (empty($row->author_id)) {
+            $row->author_id = Auth::id();
+        }
         if ($request->input('slug')) {
             $row->slug = $request->input('slug');
         }

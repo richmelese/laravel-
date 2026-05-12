@@ -13,6 +13,10 @@ use Modules\FrontendController;
 
 class CouponController extends FrontendController
 {
+    protected function isApiRequest(Request $request): bool
+    {
+        return $request->wantsJson() || $request->is('api/*');
+    }
 
     public function index(Request $request)
     {
@@ -40,6 +44,15 @@ class CouponController extends FrontendController
             ],
             'page_title'=>__("Coupon Management"),
         ];
+        if ($this->isApiRequest($request)) {
+            $rows = $data['rows'];
+            return response()->json([
+                'success' => true,
+                'data' => $rows->items(),
+                'total' => $rows->total(),
+                'max_pages' => $rows->lastPage(),
+            ]);
+        }
         return view('Coupon::frontend.vendor.index', $data);
     }
 
@@ -49,6 +62,9 @@ class CouponController extends FrontendController
         $user_id = Auth::id();
         $row = Coupon::where("author_id", $user_id)->find($id);
         if (empty($row)) {
+            if ($this->isApiRequest($request)) {
+                return response()->json(['success' => false, 'message' => __('Not found')], 404);
+            }
             return redirect(route('coupon.vendor.index'));
         }
         $data = [
@@ -64,6 +80,14 @@ class CouponController extends FrontendController
             ],
             'page_title'=>__("Edit: :name",['name'=>$row->code]),
         ];
+        if ($this->isApiRequest($request)) {
+            return response()->json([
+                'success' => true,
+                'data' => $row,
+                'services' => $row->getServicesToArray(),
+                'users' => $row->getUsersToArray(),
+            ]);
+        }
         return view('Coupon::frontend.vendor.detail', $data);
     }
 
@@ -85,6 +109,14 @@ class CouponController extends FrontendController
             ],
             'page_title'=>__('Create Coupon'),
         ];
+        if ($this->isApiRequest($request)) {
+            return response()->json([
+                'success' => true,
+                'data' => $row,
+                'services' => [],
+                'users' => [],
+            ]);
+        }
         return view('Coupon::frontend.vendor.detail', $data);
     }
 
@@ -104,6 +136,9 @@ class CouponController extends FrontendController
             $this->checkPermission('coupon_update');
             $row = Coupon::find($id);
             if (empty($row)) {
+                if ($this->isApiRequest($request)) {
+                    return response()->json(['success' => false, 'message' => __('Not found')], 404);
+                }
                 return redirect(route('coupon.vendor.index'));
             }
 
@@ -155,6 +190,13 @@ class CouponController extends FrontendController
         $row->services = $service_ids ?? [];
         $res = $row->save();
         if ($res) {
+            if ($this->isApiRequest($request)) {
+                return response()->json([
+                    'success' => true,
+                    'message' => $id > 0 ? __('Coupon updated') : __('Coupon created'),
+                    'data' => $row->fresh(),
+                ]);
+            }
 
             if($id > 0 ){
                 return redirect()->back()->with('success',  __('Coupon updated') );
@@ -162,15 +204,21 @@ class CouponController extends FrontendController
                 return redirect()->to(route('coupon.vendor.index'))->with('success',  __('Coupon created') );
             }
         }
+        if ($this->isApiRequest($request)) {
+            return response()->json(['success' => false, 'message' => __('Could not save coupon')], 500);
+        }
     }
 
-    public function delete($id)
+    public function delete(Request $request, $id)
     {
         $this->checkPermission('coupon_delete');
         $user_id = Auth::id();
         $query = Coupon::query()->where("author_id", $user_id)->where("id", $id)->first();
         if(!empty($query)){
             $query->delete();
+        }
+        if ($this->isApiRequest($request)) {
+            return response()->json(['success' => true, 'message' => __('Delete success!')]);
         }
         return redirect(route('coupon.vendor.index'))->with('success', __('Delete success!'));
     }

@@ -19,20 +19,152 @@ class RoleController extends AdminController
         $this->setActiveMenu(route('user.admin.index'));
     }
 
-    public function index()
+    protected function isApiRequest(Request $request): bool
+    {
+        return $request->wantsJson() || $request->is('api-admin/*');
+    }
+
+    /**
+     * Group permission keys by prefix (same structure as the permission matrix screen).
+     */
+    protected function buildPermissionsGroup(): array
+    {
+        $permissions = PermissionHelper::all();
+        $permissions_group = [
+            'other' => [],
+        ];
+        if (!empty($permissions)) {
+            foreach ($permissions as $permission) {
+                $sCheck = strpos($permission, '_');
+                if ($sCheck === false) {
+                    $permissions_group['other'][] = $permission;
+                    continue;
+                }
+                $grName = substr($permission, 0, $sCheck);
+                if (!isset($permissions_group[$grName])) {
+                    $permissions_group[$grName] = [];
+                }
+                $permissions_group[$grName][] = $permission;
+            }
+        }
+        if (empty($permissions_group['other'])) {
+            unset($permissions_group['other']);
+        }
+
+        return $permissions_group;
+    }
+
+    /**
+     * JSON envelope for edit-role forms (role + permission catalog + current selection).
+     */
+    protected function roleEditPayload(Role $role): array
+    {
+        $role->loadMissing('permissions');
+        $permissions = PermissionHelper::all();
+
+        return [
+            'role'                 => $role,
+            'all_permissions'      => $permissions,
+            'permissions_group'    => $this->buildPermissionsGroup(),
+            'selected_permissions' => $role->permissions->pluck('permission')->values()->all(),
+        ];
+    }
+
+    /**
+     * @return Role|null Null when updating a missing id (web redirects to index).
+     */
+    protected function persistRoleFromRequest(Request $request, $id): ?Role
     {
         $this->checkPermission('role_manage');
+        $rules = [
+            'name' => 'required',
+            'code' => [
+                'required',
+                'alpha',
+            ],
+        ];
+        if ($id > 0) {
+            $row = Role::whereId($id)->first();
+            if (empty($row)) {
+                return null;
+            }
+            $rules['code'][] = Rule::unique(Role::getTableName(), 'code')->ignore($row->id);
+        } else {
+            $row = new Role();
+            $rules['code'][] = Rule::unique(Role::getTableName(), 'code');
+        }
+        $this->validate($request, $rules);
+        $row->fill($request->only(['name', 'code']));
+        if (!$row->save()) {
+            abort(500, __('Could not save role'));
+        }
+
+        return $row;
+    }
+
+    public function index(Request $request)
+    {
         $this->checkPermission('role_manage');
+        $perPage = min(max((int) $request->input('per_page', 20), 1), 100);
+        $rows = Role::query()->orderBy('id', 'desc')->paginate($perPage);
+        if ($this->isApiRequest($request)) {
+            return response()->json([
+                'data' => $rows->items(),
+                'meta' => [
+                    'current_page' => $rows->currentPage(),
+                    'per_page'     => $rows->perPage(),
+                    'total'        => $rows->total(),
+                    'last_page'    => $rows->lastPage(),
+                ],
+            ]);
+        }
         $data = [
-            'rows'        => Role::paginate(20),
+            'rows'        => $rows,
             'breadcrumbs' => [
                 [
                     'name' => __("Users"),
-                    'url'  => route('user.admin.index')
-                ]
-            ]
+                    'url'  => route('user.admin.index'),
+                ],
+            ],
         ];
+
         return view('User::admin.role.index', $data);
+    }
+
+    public function show(Request $request, $id)
+    {
+        $this->checkPermission('role_manage');
+        $row = Role::with('permissions')->find((int) $id);
+        if (empty($row)) {
+            return response()->json(['message' => __('Not found')], 404);
+        }
+
+        return response()->json([
+            'data' => $this->roleEditPayload($row),
+        ]);
+    }
+
+    public function update(Request $request, $id)
+    {
+        if (is_demo_mode()) {
+            return response()->json(['message' => __('DEMO Mode: You can not do this')], 403);
+        }
+        $request->validate([
+            'permissions'   => 'sometimes|array',
+            'permissions.*' => 'string',
+        ]);
+        $row = $this->persistRoleFromRequest($request, $id);
+        if ($row === null) {
+            return response()->json(['message' => __('Not found')], 404);
+        }
+        if ($request->has('permissions')) {
+            $row->syncPermissions($request->input('permissions', []));
+        }
+
+        return response()->json([
+            'message' => __('Role updated'),
+            'data'    => $this->roleEditPayload($row->fresh(['permissions'])),
+        ]);
     }
 
     public function create(Request $request)
@@ -92,37 +224,28 @@ class RoleController extends AdminController
 
     public function store(Request $request, $id){
         if(is_demo_mode()){
+            if ($this->isApiRequest($request)) {
+                return response()->json(['message' => __('DEMO Mode: You can not do this')], 403);
+            }
             return back()->with('danger',  __('DEMO Mode: You can not do this') );
         }
-        $rules = [
-            'name'=>'required',
-            'code'=>[
-                'required',
-                'alpha',
-            ]
-        ];
-        $this->checkPermission('role_manage');
-        if($id>0){
-            $row = Role::whereId($id)->first();
-            if (empty($row)) {
-                return redirect(route('user.admin.role.index'));
+        $row = $this->persistRoleFromRequest($request, $id);
+        if ($row === null) {
+            if ($this->isApiRequest($request)) {
+                return response()->json(['message' => __('Not found')], 404);
             }
-            $rules['code'][] = Rule::unique(Role::getTableName(),'code')->ignore($row->id);
-        }else{
-            $row = new Role();
-            $rules['code'][] = Rule::unique(Role::getTableName(),'code');
+            return redirect(route('user.admin.role.index'));
         }
-        $this->validate($request,$rules);
-
-        $row->fill($request->input());
-        $res = $row->save();
-        if ($res) {
-            if($id > 0 ){
-                return back()->with('success',  __('Role updated') );
-            }else{
-                return redirect(route('user.admin.role.detail',['id' => $row->id]))->with('success', __('Role created') );
-            }
+        if ($this->isApiRequest($request)) {
+            return response()->json([
+                'message' => ($id > 0) ? __('Role updated') : __('Role created'),
+                'data'    => $this->roleEditPayload($row->fresh(['permissions'])),
+            ]);
         }
+        if($id > 0 ){
+            return back()->with('success',  __('Role updated') );
+        }
+        return redirect(route('user.admin.role.detail',['id' => $row->id]))->with('success', __('Role created') );
     }
 
     public function verifyFields(Request $request){
@@ -296,7 +419,6 @@ class RoleController extends AdminController
             'roles'             => $roles,
             'permissions_group' => $permissions_group,
             'selectedIds'       => $selectedIds,
-            'role'        => $role,
             'breadcrumbs' => [
                 [
                     'name' => __("Users"),

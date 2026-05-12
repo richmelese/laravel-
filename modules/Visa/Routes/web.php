@@ -16,7 +16,7 @@ Route::get('/visa/{slug}/applications/{code}', ApplicationsForm::class)->name('v
 //  Related to user
 Route::group([
     'prefix' => 'user',
-    'middleware' => ['auth'],
+    'middleware' => ['auth:sanctum'],
 ], function () {
     Route::get('/visa/booking/{code}', VisaBookingDetailPage::class)->name('visa.user.booking-detail');
 });

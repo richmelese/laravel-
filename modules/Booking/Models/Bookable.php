@@ -26,6 +26,15 @@
         public $set_paid_modal_file                = 'Layout::global.booking.set-paid-modal';
 
         protected $reviewClass;
+        /**
+         * @var array<int,\Modules\Location\Models\Location|null>
+         */
+        protected static array $apiLocationCache = [];
+
+        /**
+         * @var array<string,string|null>
+         */
+        protected static array $apiMediaUrlCache = [];
 
         public function __construct(array $attributes = [])
         {
@@ -407,6 +416,10 @@
         public function dataForApi($forSingle = false)
         {
             $translation = $this->translate();
+            $location = null;
+            if (!empty($this->location_id)) {
+                $location = $this->resolveApiLocation((int) $this->location_id);
+            }
             $data = [
                 'id'               => $this->id,
                 'object_model'     => $this->type ?? $this->object_model ?? null,
@@ -414,9 +427,9 @@
                 'price'            => $this->price,
                 'sale_price'       => $this->sale_price,
                 'discount_percent' => $this->discount_percent ?? null,
-                'image'            => get_file_url($this->image_id,'medium'),
+                'image'            => $this->resolveApiMediaUrl($this->image_id, 'medium'),
                 'content'          => $translation->content,
-                'location'         => Location::selectRaw("id,name")->find($this->location_id) ?? null,
+                'location'         => $location ? $location->only(['id', 'name']) : null,
                 'is_featured'      => $this->is_featured ?? null,
                 'is_wishlist'      => !empty($this->isWishlist()) ?1:0,
             ];
@@ -425,11 +438,14 @@
                 $data["map_lat"] = $this->map_lat;
                 $data["map_lng"] = $this->map_lng;
                 $data["map_zoom"] = $this->map_zoom;
-                $data["banner_image"] = get_file_url($this->banner_image_id, 'full');
+                $data["banner_image"] = $this->resolveApiMediaUrl($this->banner_image_id, 'full');
                 if (!empty($this->gallery)) {
                     $galleries = explode(",", $this->gallery);
                     foreach ($galleries as $item) {
-                        $data["gallery"][] = get_file_url($item, 'full');
+                        $url = $this->resolveApiMediaUrl((int) $item, 'full');
+                        if (!empty($url)) {
+                            $data["gallery"][] = $url;
+                        }
                     }
                 }
                 $data["video"] = $this->video;
@@ -437,6 +453,37 @@
                 $data["extra_price"] = $this->extra_price ?? null;
             }
             return $data;
+        }
+
+        protected function resolveApiLocation(int $locationId): ?Location
+        {
+            if ($locationId <= 0) {
+                return null;
+            }
+            if (array_key_exists($locationId, self::$apiLocationCache)) {
+                return self::$apiLocationCache[$locationId];
+            }
+
+            self::$apiLocationCache[$locationId] = Location::query()
+                ->select(['id', 'name'])
+                ->find($locationId);
+
+            return self::$apiLocationCache[$locationId];
+        }
+
+        protected function resolveApiMediaUrl(?int $mediaId, string $size): ?string
+        {
+            if (empty($mediaId)) {
+                return null;
+            }
+            $cacheKey = $mediaId . ':' . $size;
+            if (array_key_exists($cacheKey, self::$apiMediaUrlCache)) {
+                return self::$apiMediaUrlCache[$cacheKey];
+            }
+
+            self::$apiMediaUrlCache[$cacheKey] = FileHelper::url((int) $mediaId, $size) ?: null;
+
+            return self::$apiMediaUrlCache[$cacheKey];
         }
 
         public function getStatusTextAttribute(){

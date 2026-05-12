@@ -98,6 +98,18 @@
 </script>
 <script src="{{ asset('libs/lodash.min.js') }}"></script>
 <script src="{{ asset('libs/jquery-3.6.3.min.js') }}"></script>
+<script>
+    (function ($) {
+        $.ajaxSetup({
+            beforeSend: function (xhr) {
+                var token = $('meta[name="csrf-token"]').attr('content');
+                if (token) {
+                    xhr.setRequestHeader('X-CSRF-TOKEN', token);
+                }
+            },
+        });
+    })(jQuery);
+</script>
 <script src="{{ asset('libs/vue/vue' . (!env('APP_DEBUG') ? '.min' : '') . '.js') }}"></script>
 <script src="{{ asset('libs/bootstrap/js/bootstrap.bundle.min.js') }}"></script>
 <script src="{{ asset('libs/bootbox/bootbox.min.js') }}"></script>

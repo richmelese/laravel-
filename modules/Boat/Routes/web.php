@@ -6,7 +6,7 @@ Route::group(['prefix'=>config('boat.boat_route_prefix')],function(){
     Route::get('/{slug}','BoatController@detail')->name('boat.detail');// Detail
 });
 
-Route::group(['prefix'=>'user/'.config('boat.boat_route_prefix'),'middleware' => ['auth','verified']],function(){
+Route::group(['prefix'=>'user/'.config('boat.boat_route_prefix'),'middleware' => ['auth:sanctum','verified']],function(){
     Route::get('/','ManageBoatController@manageBoat')->name('boat.vendor.index');
     Route::get('/create','ManageBoatController@createBoat')->name('boat.vendor.create');
     Route::get('/edit/{id}','ManageBoatController@editBoat')->name('boat.vendor.edit');
@@ -18,7 +18,7 @@ Route::group(['prefix'=>'user/'.config('boat.boat_route_prefix'),'middleware' =>
     Route::get('/restore/{id}','ManageBoatController@restore')->name('boat.vendor.restore');
 });
 
-Route::group(['prefix'=>'user/'.config('boat.boat_route_prefix')],function(){
+Route::group(['prefix'=>'user/'.config('boat.boat_route_prefix'),'middleware' => ['auth:sanctum','verified']],function(){
     Route::group(['prefix'=>'availability'],function(){
         Route::get('/','AvailabilityController@index')->name('boat.vendor.availability.index');
         Route::get('/loadDates','AvailabilityController@loadDates')->name('boat.vendor.availability.loadDates');

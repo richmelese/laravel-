@@ -1,0 +1,1 @@
+{"errors":{"service_id":["The service id field is required."],"service_type":["The service type field is required."],"enquiry_name":["The enquiry name field is required."],"enquiry_note":["The enquiry note field is required."],"enquiry_email":["The enquiry email field is required."]},"status":0}

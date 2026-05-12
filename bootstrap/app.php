@@ -5,6 +5,8 @@ use Illuminate\Foundation\Configuration\Middleware;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Auth\AuthenticationException;
 use Illuminate\Http\Request;
+use Illuminate\Session\TokenMismatchException;
+use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
 
@@ -19,6 +21,23 @@ return Application::configure(basePath: dirname(__DIR__))
             '*/gateway_callback/*',
             '*/callback/*',
             '*/order/confirm/*',
+            // Login modal/API-like submissions can come without a stable first-party session cookie.
+            'login',
+            '*/login',
+            'hotel/checkAvailability',
+            // SPA JSON POSTs to web booking URLs (CORS + no session cookie); prefer POST /api/booking/* when possible.
+            'booking/addEnquiry',
+            'booking/addToCart',
+            'booking/doCheckout',
+            // SPA newsletter subscribe from another origin.
+            'newsletter/subscribe',
+            // Public contact JSON POST without first-party session (SPA / alternate origin).
+            // Rate-limited on the controller.
+            'contact/store',
+            '*/contact/store',
+            // Public vendor registration from SPA/Postman without first-party CSRF cookie.
+            'vendor/register',
+            '*/vendor/register',
         ];
 
         // Optional dev-only bypass for cross-origin Livewire requests.
@@ -32,6 +51,16 @@ return Application::configure(basePath: dirname(__DIR__))
         // Redirect to installer if not installed
         $middleware->append(\App\Http\Middleware\RedirectToInstaller::class);
 
+        // CORS for web routes (e.g. /user/hotel) when requested cross-origin from a local SPA.
+        $middleware->web(prepend: [
+            \Illuminate\Http\Middleware\HandleCors::class,
+        ]);
+
+        // Explicit Referrer-Policy (avoids "missing referrer policy" scanner noise; matches common browser defaults).
+        $middleware->web(append: [
+            \App\Http\Middleware\SetReferrerPolicy::class,
+        ]);
+
         $middleware->web([
             \App\Http\Middleware\RedirectForMultiLanguage::class,
             \App\Http\Middleware\SetLanguageForAdmin::class,
@@ -43,6 +72,7 @@ return Application::configure(basePath: dirname(__DIR__))
             \App\Http\Middleware\MayAuthenticateWithSanctum::class,
         ], [
             \App\Http\Middleware\SetLanguageForApi::class,
+            \App\Http\Middleware\SetReferrerPolicy::class,
             \App\Http\Middleware\RequireChangePassword::class,
         ]);
 
@@ -60,7 +90,7 @@ return Application::configure(basePath: dirname(__DIR__))
     })
     ->withExceptions(function (Exceptions $exceptions) {
         $exceptions->render(function (AuthenticationException $exception, Request $request) {
-            if ($request->is('api-admin/*') || $request->expectsJson()) {
+            if ($request->is('api-admin/*') || $request->expectsJson() || $request->bearerToken()) {
                 return response()->json([
                     'message' => 'You have to login',
                 ], 401);
@@ -70,14 +100,37 @@ return Application::configure(basePath: dirname(__DIR__))
         });
 
         $exceptions->render(function (ValidationException $exception, Request $request) {
-            if ($request->is('api-admin/*') || $request->is('api/*')) {
-                return response()->json([
-                    'message' => $exception->getMessage(),
-                    'errors' => $exception->errors(),
-                ], 422);
+            $wantsHttpJson = $request->expectsJson()
+                || $request->ajax()
+                || Str::contains((string) $request->header('Accept'), 'application/json');
+
+            if (! $request->is('api-admin/*') && ! $request->is('api/*') && ! $wantsHttpJson) {
+                return null;
             }
 
-            return null;
+            return response()->json([
+                'message' => __('The given data was invalid.'),
+                'errors' => $exception->errors(),
+            ], $exception->status);
+        });
+
+        $exceptions->render(function (TokenMismatchException $exception, Request $request) {
+            if (
+                ! $request->expectsJson()
+                && ! $request->ajax()
+                && ! Str::contains((string) $request->header('Accept'), 'application/json')
+            ) {
+                return null;
+            }
+
+            return response()->json([
+                'message' => __('Page expired or invalid CSRF token. Refresh the page and try again.'),
+                'errors' => [
+                    '_token' => [
+                        __('Session token mismatch. Reload the page, then submit again.'),
+                    ],
+                ],
+            ], 419);
         });
 
         $exceptions->render(function (HttpExceptionInterface $exception, Request $request) {
