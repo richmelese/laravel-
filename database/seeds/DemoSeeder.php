@@ -125,12 +125,12 @@ class DemoSeeder extends Seeder
                 ],
                 [
                     'name'  => "g_stripe_stripe_test_secret_key",
-                    'val'   => "sk_test_lndgAdg64aanpveyTRgLBuLX",
+                    'val'   => (string) env('DEMO_STRIPE_TEST_SECRET_KEY', ''),
                     'group' => "payment",
                 ],
                 [
                     'name'  => "g_stripe_stripe_test_publishable_key",
-                    'val'   => "pk_test_FpBteyNZzbH26o2ONNujkwoF",
+                    'val'   => (string) env('DEMO_STRIPE_TEST_PUBLISHABLE_KEY', ''),
                     'group' => "payment",
                 ]
             ]);
