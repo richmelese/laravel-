@@ -71,6 +71,7 @@ Route::group(['prefix' => 'user', 'middleware' => ['api']], function ($router) {
     Route::get('vendor/events', 'VendorListingController@events')->name('api.user.vendor.events');
     Route::get('vendor/flights', 'VendorListingController@flights')->name('api.user.vendor.flights');
     Route::get('vendor/properties', 'VendorListingController@properties')->name('api.user.vendor.properties');
+    Route::get('vendor/quick-manage', 'VendorListingController@quickManage')->name('api.user.vendor.quick_manage');
 
     Route::get('vendor/{resource}/recovery', 'VendorListingController@vendorRecoveryListing')
         ->where('resource', 'hotels|tours|spaces|cars|boats|events|flights|properties')
@@ -99,6 +100,7 @@ Route::group(['prefix' => 'user', 'middleware' => ['api']], function ($router) {
         ->name('api.user.listing.recovery');
 
     Route::get('booking-history', 'UserController@getBookingHistory')->name("api.user.booking_history");
+    Route::get('dashboard', 'UserController@vendorDashboard')->name('api.user.dashboard');
 
     // Wishlist
     Route::post('/wishlist/{object_model}/{object_id}', 'UserController@addWishList')->name("api.user.wishList.add");

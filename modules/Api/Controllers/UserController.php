@@ -20,6 +20,27 @@ class UserController extends Controller
         $this->middleware('auth:sanctum');
     }
 
+    /**
+     * Vendor dashboard metrics (JSON). Requires Sanctum + dashboard_vendor_access.
+     */
+    public function vendorDashboard(Request $request)
+    {
+        $user = Auth::user();
+        if (!$user->hasPermission('dashboard_vendor_access')) {
+            return response()->json([
+                'status' => 0,
+                'message' => __('You do not have access to the vendor dashboard.'),
+            ], 403);
+        }
+        $user_id = $user->id;
+
+        return $this->sendSuccess([
+            'page_title' => __('Vendor Dashboard'),
+            'cards_report' => Booking::getTopCardsReportForVendor($user_id),
+            'earning_chart_data' => Booking::getEarningChartDataForVendor(strtotime('monday this week'), time(), $user_id),
+        ]);
+    }
+
     public function getBookingHistory(Request $request){
         $user_id = Auth::id();
         $query = Booking::getBookingHistory($request->input('status'), $user_id);

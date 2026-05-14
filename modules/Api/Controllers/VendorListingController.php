@@ -43,6 +43,50 @@ class VendorListingController extends Controller
         $this->middleware('auth:sanctum');
     }
 
+    /**
+     * Summary counts for vendor “quick manage” tiles (Hotel, Tour, Space, …).
+     * Same scope as listing APIs: author_id = current user, non–soft-deleted rows only.
+     */
+    public function quickManage(Request $request)
+    {
+        $user = Auth::user();
+        if (! $user->hasPermission('dashboard_vendor_access')) {
+            return response()->json([
+                'status' => 0,
+                'message' => __('You do not have access to the vendor dashboard.'),
+            ], 403);
+        }
+
+        $items = [];
+        foreach (get_bookable_services() as $type => $className) {
+            if (! is_string($className) || ! class_exists($className)) {
+                continue;
+            }
+            if (! method_exists($className, 'isEnable') || ! $className::isEnable()) {
+                continue;
+            }
+            $permission = $type . '_view';
+            $canManage = $user->hasPermission($permission);
+            $title = method_exists($className, 'getModelName')
+                ? call_user_func([$className, 'getModelName'])
+                : ucfirst((string) $type);
+            $icon = method_exists($className, 'getServiceIconFeatured')
+                ? call_user_func([$className, 'getServiceIconFeatured'])
+                : null;
+            $count = (int) $className::query()->where('author_id', $user->id)->count();
+            $items[] = [
+                'type' => $type,
+                'title' => $title,
+                'count' => $count,
+                'listings_label' => trans_choice(':count listing|:count listings', $count, ['count' => $count]),
+                'can_manage' => $canManage,
+                'icon' => $icon,
+            ];
+        }
+
+        return $this->sendSuccess(['items' => $items]);
+    }
+
     public function hotels(Request $request)
     {
         return $this->listing(
