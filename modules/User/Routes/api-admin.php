@@ -4,6 +4,7 @@ use Illuminate\Support\Facades\Route;
 
 Route::group(['prefix' => 'user'], function () {
     Route::get('/', 'UserController@index')->name('api_admin.user.index');
+    Route::get('/getForSelect2', 'UserController@getForSelect2')->name('api_admin.user.getForSelect2');
     Route::post('/store/{id}', 'UserController@store')->name('api_admin.user.store')->where('id', '[0-9]+');
     Route::get('/{id}', 'UserController@show')->name('api_admin.user.show')->where('id', '[0-9]+');
     Route::put('/{id}', 'UserController@update')->name('api_admin.user.update')->where('id', '[0-9]+');
@@ -13,9 +14,14 @@ Route::group(['prefix' => 'user'], function () {
 
 Route::group(['prefix' => 'role'], function () {
     Route::get('/', 'RoleController@index')->name('api_admin.role.index');
+    Route::post('/', 'RoleController@storeNew')->name('api_admin.role.create');
+    Route::get('/permissions', 'RoleController@allPermissions')->name('api_admin.role.permissions');
+    Route::get('/permission-matrix', 'RoleController@permissionMatrix')->name('api_admin.role.permission_matrix');
+    Route::post('/permission-matrix', 'RoleController@savePermissions')->name('api_admin.role.save_permissions');
     Route::get('/{id}', 'RoleController@show')->name('api_admin.role.show')->where('id', '[0-9]+');
     Route::put('/{id}', 'RoleController@update')->name('api_admin.role.update')->where('id', '[0-9]+');
     Route::patch('/{id}', 'RoleController@update')->name('api_admin.role.patch')->where('id', '[0-9]+');
+    Route::delete('/{id}', 'RoleController@destroy')->name('api_admin.role.destroy')->where('id', '[0-9]+');
 });
 
 Route::group(['prefix' => 'verification'], function () {

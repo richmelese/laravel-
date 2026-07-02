@@ -213,6 +213,14 @@ class HotelController extends Controller
         return view('Hotel::frontend.detail', $data);
     }
 
+    public function filters()
+    {
+        return $this->sendSuccess([
+            'price' => $this->hotelClass::getMinMaxPrice(),
+            'attributes' => Attributes::getAllAttributesForApi('hotel'),
+        ]);
+    }
+
     public function checkAvailability(){
         $hotel_id = \request('hotel_id');
         if(\request()->input('firstLoad') == "false") {

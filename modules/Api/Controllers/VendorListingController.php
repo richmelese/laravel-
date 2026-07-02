@@ -31,6 +31,8 @@ class VendorListingController extends Controller
         'author_id',
         'location_id',
         'image_id',
+        'banner_image_id',
+        'address',
         'price',
         'sale_price',
         'created_at',

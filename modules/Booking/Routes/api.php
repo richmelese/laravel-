@@ -30,5 +30,10 @@ Route::group(['prefix' => config('booking.booking_route_prefix', 'booking')], fu
     // Vendor/admin helpers (secured)
     Route::post('/setPaidAmount', 'BookingController@setPaidAmount')->name('api.booking.setPaidAmount')->middleware('auth:sanctum');
     Route::post('/storeNoteBooking', 'BookingController@storeNoteBooking')->name('api.booking.storeNoteBooking')->middleware('auth:sanctum');
+
+    // Guest booking: look up by code + email (no auth)
+    Route::get('/guest-lookup', 'BookingController@guestLookup')->name('api.booking.guestLookup');
+    // Claim past guest bookings after registering (auth required)
+    Route::post('/claim-guest-bookings', 'BookingController@claimGuestBookings')->name('api.booking.claimGuestBookings')->middleware('auth:sanctum');
 });
 

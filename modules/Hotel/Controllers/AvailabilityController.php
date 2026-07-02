@@ -60,12 +60,20 @@ class AvailabilityController extends FrontendController{
         return true;
     }
 
+    protected function isApiRequest(Request $request): bool
+    {
+        return $request->wantsJson() || $request->is('api-admin/*') || $request->is('api/*');
+    }
+
     public function index(Request $request,$hotel_id = false){
 
         $this->checkPermission('hotel_update');
 
         if($hotel_id and !$this->hasHotelPermission($hotel_id))
         {
+            if($this->isApiRequest($request)) {
+                return response()->json(['message' => __('Permission denied')], 403);
+            }
             abort(403);
         }
 
@@ -90,7 +98,20 @@ class AvailabilityController extends FrontendController{
             $q->groupBy($q->qualifyColumn('id'));
         }
 
-        $rows = $q->paginate(15);
+        $perPage = $this->isApiRequest($request) ? min((int) $request->query('per_page', 15), 100) : 15;
+        $rows = $q->paginate($perPage);
+
+        if($this->isApiRequest($request)) {
+            return response()->json([
+                'data' => $rows->items(),
+                'meta' => [
+                    'current_page' => $rows->currentPage(),
+                    'per_page'     => $rows->perPage(),
+                    'total'        => $rows->total(),
+                    'last_page'    => $rows->lastPage(),
+                ],
+            ]);
+        }
 
         $current_month = strtotime(date('Y-m-01',time()));
 

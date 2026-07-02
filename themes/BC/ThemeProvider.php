@@ -37,9 +37,14 @@ class ThemeProvider extends \Themes\Base\ThemeProvider
         'coupon'    => \Modules\Coupon\ModuleProvider::class,
         'location'  => \Modules\Location\ModuleProvider::class,
         'review'    => \Modules\Review\ModuleProvider::class,
-        'popup'     => \Modules\Popup\ModuleProvider::class,
-        'form'      => \Modules\Form\ModuleProvider::class,
-        'visa'      => \Modules\Visa\ModuleProvider::class,
+        'popup'        => \Modules\Popup\ModuleProvider::class,
+        'form'         => \Modules\Form\ModuleProvider::class,
+        'visa'         => \Modules\Visa\ModuleProvider::class,
+        'announcement'   => \Modules\Announcement\ModuleProvider::class,
+        'medicalbooking' => \Modules\MedicalBooking\ModuleProvider::class,
+        'apppromo'       => \Modules\AppPromo\ModuleProvider::class,
+        'emergency'      => \Modules\Emergency\ModuleProvider::class,
+        'hospital'       => \Modules\Hospital\ModuleProvider::class,
     ];
 
     public function register()

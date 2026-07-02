@@ -123,6 +123,17 @@
             return view('Tour::frontend.search', $data);
         }
 
+        public function filters()
+        {
+            return response()->json([
+                'data' => [
+                    'price' => $this->tourClass::getMinMaxPrice(),
+                    'categories' => $this->tourCategoryClass::where('status', 'publish')->with(['translation'])->get()->toTree(),
+                    'attributes' => $this->attributesClass::getAllAttributesForApi('tour'),
+                ],
+            ]);
+        }
+
         public function detail(Request $request, $slug)
         {
             $row = $this->tourClass::where('slug', $slug)->with(['location','translation','hasWishList'])->first();

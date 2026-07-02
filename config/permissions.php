@@ -120,6 +120,32 @@ return [
     'popup_update',
     'popup_delete',
 
+    // Announcement
+    'announcement_view',
+    'announcement_create',
+    'announcement_update',
+    'announcement_delete',
+
+    // Medical Booking
+    'medical_booking_view',
+    'medical_booking_update',
+    'medical_booking_delete',
+
+    // App Promotion
+    'app_promo_manage',
+
+    // Emergency Info
+    'emergency_view',
+    'emergency_create',
+    'emergency_update',
+    'emergency_delete',
+
+    // Hospital
+    'hospital_view',
+    'hospital_create',
+    'hospital_update',
+    'hospital_delete',
+    'hospital_manage_others',
 
     'media_manage_others'
 ];

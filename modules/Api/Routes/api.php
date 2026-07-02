@@ -14,6 +14,7 @@ use \Illuminate\Support\Facades\Route;
 */
 /* Config */
 Route::get('configs','BookingController@getConfigs')->name('api.get_configs');
+Route::get('configs/map','BookingController@getMapConfig')->name('api.get_map_config');
 Route::get('configs/countries','CountryController@index')->name('api.country.index');
 /* Service */
 Route::get('services','SearchController@searchServices')->name('api.service-search');
@@ -99,7 +100,26 @@ Route::group(['prefix' => 'user', 'middleware' => ['api']], function ($router) {
         ->where('listing', 'hotel|hotels|tour|tours|space|spaces|car|cars|boat|boats|event|events|flight|flights|property|properties')
         ->name('api.user.listing.recovery');
 
+    // Vendor "my news" (Sanctum personal access token).
+    Route::get('vendor/news', 'VendorNewsController@index')->name('api.user.vendor.news.index');
+    Route::get('vendor/news/{id}', 'VendorNewsController@show')->name('api.user.vendor.news.show');
+    Route::post('vendor/news', 'VendorNewsController@store')->name('api.user.vendor.news.store');
+    Route::put('vendor/news/{id}', 'VendorNewsController@update')->name('api.user.vendor.news.update');
+    Route::delete('vendor/news/{id}', 'VendorNewsController@destroy')->name('api.user.vendor.news.destroy');
+    Route::post('vendor/news/bulk-edit', 'VendorNewsController@bulkEdit')->name('api.user.vendor.news.bulk_edit');
+
+    // Vendor booking report (Sanctum personal access token).
+    Route::get('vendor/booking-report', 'VendorReportController@bookingReport')->name('api.user.vendor.booking_report');
+
+    // Vendor enquiry report (Sanctum personal access token).
+    Route::get('vendor/enquiry-report', 'VendorEnquiryController@index')->name('api.user.vendor.enquiry_report.index');
+    Route::put('vendor/enquiry-report/{id}', 'VendorEnquiryController@update')->name('api.user.vendor.enquiry_report.update');
+    Route::delete('vendor/enquiry-report/{id}', 'VendorEnquiryController@destroy')->name('api.user.vendor.enquiry_report.destroy');
+    Route::get('vendor/enquiry-report/{enquiry}/replies', 'VendorEnquiryController@replies')->name('api.user.vendor.enquiry_report.replies');
+    Route::post('vendor/enquiry-report/{enquiry}/replies', 'VendorEnquiryController@replyStore')->name('api.user.vendor.enquiry_report.reply_store');
+
     Route::get('booking-history', 'UserController@getBookingHistory')->name("api.user.booking_history");
+    Route::get('bookings',        'UserController@getBookingHistory')->name("api.user.bookings");
     Route::get('dashboard', 'UserController@vendorDashboard')->name('api.user.dashboard');
 
     // Wishlist
@@ -138,6 +158,12 @@ Route::group(['prefix'=>config('booking.booking_route_prefix')],function(){
     Route::post('/doCheckout','BookingController@doCheckout')->name('api.booking.doCheckout');
     Route::get('/confirm/{gateway}','BookingController@confirmPayment');
     Route::get('/cancel/{gateway}','BookingController@cancelPayment');
+
+    // Guest booking: look up status by booking code + email (no auth required)
+    Route::get('/guest-lookup','BookingController@guestLookup')->name('api.booking.guestLookup');
+    // Claim all past guest bookings matching the authenticated user's email
+    Route::post('/claim-guest-bookings','BookingController@claimGuestBookings')->name('api.booking.claimGuestBookings')->middleware('auth:sanctum');
+
     Route::get('/{code}','BookingController@detail');
     Route::get('/{code}/thankyou','BookingController@thankyou')->name('booking.thankyou');
     Route::get('/{code}/checkout','BookingController@checkout');

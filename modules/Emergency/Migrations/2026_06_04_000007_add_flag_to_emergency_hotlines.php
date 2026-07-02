@@ -1,0 +1,24 @@
+<?php
+
+use Illuminate\Support\Facades\Schema;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Database\Migrations\Migration;
+
+return new class extends Migration
+{
+    public function up()
+    {
+        Schema::table('bc_emergency_hotlines', function (Blueprint $table) {
+            if (!Schema::hasColumn('bc_emergency_hotlines', 'flag')) {
+                $table->string('flag', 100)->nullable()->after('email');
+            }
+        });
+    }
+
+    public function down()
+    {
+        Schema::table('bc_emergency_hotlines', function (Blueprint $table) {
+            $table->dropColumn('flag');
+        });
+    }
+};

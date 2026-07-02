@@ -459,6 +459,94 @@ class RoleController extends AdminController
         return redirect()->back()->with('success', __('Permission Matrix updated'));
     }
 
+    public function allPermissions(Request $request)
+    {
+        $this->checkPermission('role_manage');
+
+        return response()->json([
+            'data' => [
+                'permissions'       => PermissionHelper::all(),
+                'permissions_group' => $this->buildPermissionsGroup(),
+            ],
+        ]);
+    }
+
+    public function permissionMatrix(Request $request)
+    {
+        $this->checkPermission('permission_view');
+
+        $roles = Role::with('permissions')->get();
+
+        return response()->json([
+            'data' => [
+                'permissions_group' => $this->buildPermissionsGroup(),
+                'roles'             => $roles->map(function ($role) {
+                    return [
+                        'id'          => $role->id,
+                        'name'        => $role->name,
+                        'code'        => $role->code,
+                        'permissions' => $role->permissions->pluck('permission')->values()->all(),
+                    ];
+                }),
+            ],
+        ]);
+    }
+
+    public function savePermissions(Request $request)
+    {
+        if (is_demo_mode()) {
+            return response()->json(['message' => __('DEMO Mode: You can not do this')], 403);
+        }
+        $this->checkPermission('role_manage');
+
+        $request->validate([
+            'matrix'     => 'sometimes|array',
+            'matrix.*'   => 'array',
+            'matrix.*.*' => 'string',
+        ]);
+
+        $matrix = $request->input('matrix', []);
+        $roles  = Role::query()->get();
+
+        foreach ($roles as $role) {
+            $role->syncPermissions($matrix[$role->id] ?? []);
+        }
+
+        return response()->json(['message' => __('Permission Matrix updated')]);
+    }
+
+    public function storeNew(Request $request)
+    {
+        if (is_demo_mode()) {
+            return response()->json(['message' => __('DEMO Mode: You can not do this')], 403);
+        }
+        $row = $this->persistRoleFromRequest($request, 0);
+        if ($request->has('permissions')) {
+            $row->syncPermissions($request->input('permissions', []));
+        }
+
+        return response()->json([
+            'message' => __('Role created'),
+            'data'    => $this->roleEditPayload($row->fresh(['permissions'])),
+        ], 201);
+    }
+
+    public function destroy(Request $request, $id)
+    {
+        if (is_demo_mode()) {
+            return response()->json(['message' => __('DEMO Mode: You can not do this')], 403);
+        }
+        $this->checkPermission('role_manage');
+
+        $row = Role::find((int) $id);
+        if (empty($row)) {
+            return response()->json(['message' => __('Not found')], 404);
+        }
+        $row->delete();
+
+        return response()->json(['message' => __('Role deleted')]);
+    }
+
     public function getForSelect2(Request $request)
     {
         $pre_selected = $request->query('pre_selected');

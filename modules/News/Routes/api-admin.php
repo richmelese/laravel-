@@ -14,5 +14,11 @@ Route::group(['prefix' => 'news'], function () {
     Route::get('/category/edit/{id}', 'CategoryController@edit')->name('api_admin.news.category.edit');
     Route::post('/category/store/{id}', 'CategoryController@store')->name('api_admin.news.category.store');
     Route::post('/category/bulkEdit', 'CategoryController@bulkEdit')->name('api_admin.news.category.bulkEdit');
+
+    Route::get('/tag', 'TagController@index')->name('api_admin.news.tag.index');
+    Route::get('/tag/getForSelect2', 'TagController@getForSelect2')->name('api_admin.news.tag.getForSelect2');
+    Route::get('/tag/edit/{id}', 'TagController@edit')->name('api_admin.news.tag.edit')->where('id', '[0-9]+');
+    Route::post('/tag/store/{id}', 'TagController@store')->name('api_admin.news.tag.store')->where('id', '[0-9]+');
+    Route::post('/tag/bulkEdit', 'TagController@bulkEdit')->name('api_admin.news.tag.bulkEdit');
 });
 

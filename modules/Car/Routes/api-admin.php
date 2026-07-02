@@ -31,6 +31,7 @@ Route::group(['prefix' => 'car'], function () {
 
     // Availability calendar data + save
     Route::group(['prefix' => 'availability'], function () {
+        Route::get('/', 'AvailabilityController@index')->name('api_admin.car.availability.index');
         Route::get('/loadDates', 'AvailabilityController@loadDates')->name('api_admin.car.availability.loadDates');
         Route::post('/store', 'AvailabilityController@store')->name('api_admin.car.availability.store');
     });

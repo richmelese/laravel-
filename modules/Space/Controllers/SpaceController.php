@@ -101,6 +101,16 @@ class SpaceController extends Controller
         return view('Space::frontend.search', $data);
     }
 
+    public function filters()
+    {
+        return response()->json([
+            'data' => [
+                'price' => $this->spaceClass::getMinMaxPrice(),
+                'attributes' => Attributes::getAllAttributesForApi('space'),
+            ],
+        ]);
+    }
+
     public function detail(Request $request, $slug)
     {
         $row = $this->spaceClass::where('slug', $slug)->with(['location','translation','hasWishList'])->first();

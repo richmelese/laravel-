@@ -16,6 +16,7 @@ class BookingController extends \Modules\Booking\Controllers\BookingController
         $this->middleware('auth:sanctum')->except([
             'detail',
             'getConfigs',
+            'getMapConfig',
             'getHomeLayout',
             'getTypes',
             'cancelPayment',
@@ -28,8 +29,28 @@ class BookingController extends \Modules\Booking\Controllers\BookingController
             'checkout',
             'checkStatusCheckout',
             'getGatewaysForApi',
+            // Guest booking tracking (no auth — only code+email required)
+            'guestLookup',
         ]);
     }
+    public function getMapConfig(Request $request)
+    {
+        $data = [
+            'map_provider' => setting_item('map_provider', 'google'),
+            'map_gmap_key' => setting_item('map_gmap_key'),
+        ];
+
+        $etag = md5(serialize($data));
+
+        if ($request->header('If-None-Match') === $etag) {
+            return response('', 304);
+        }
+
+        return $this->sendSuccess($data)
+            ->header('Cache-Control', 'public, max-age=3600')
+            ->header('ETag', $etag);
+    }
+
     public function getTypes(){
         $types = get_bookable_services();
 
@@ -247,5 +268,60 @@ class BookingController extends \Modules\Booking\Controllers\BookingController
             $item['symbol'] = $currency['symbol'];
         }
         return $list;
+    }
+
+    /**
+     * GET /api/booking/guest-lookup?code=XXX&email=guest@example.com
+     * Allow a guest to retrieve their booking status using the booking code + email.
+     * No authentication required.
+     */
+    public function guestLookup(Request $request)
+    {
+        $validator = \Illuminate\Support\Facades\Validator::make($request->all(), [
+            'code'  => 'required|string',
+            'email' => 'required|email',
+        ]);
+        if ($validator->fails()) {
+            return $this->sendError('', ['errors' => $validator->errors()]);
+        }
+
+        $booking = Booking::where('code', $request->input('code'))
+            ->where('email', $request->input('email'))
+            ->whereNotIn('status', ['draft'])
+            ->first();
+
+        if (empty($booking)) {
+            return $this->sendError(__('Booking not found. Please check your booking code and email.'))->setStatusCode(404);
+        }
+
+        return $this->sendSuccess([
+            'booking' => $booking->only([
+                'code', 'status', 'first_name', 'last_name', 'email',
+                'total', 'currency', 'start_date', 'end_date',
+                'object_model', 'created_at',
+            ]),
+            'service' => $booking->service ? [
+                'title' => $booking->service->title ?? null,
+                'id'    => $booking->service->id ?? null,
+            ] : null,
+        ]);
+    }
+
+    /**
+     * POST /api/booking/claim-guest-bookings
+     * Assign all previous guest bookings (matching the authenticated user's email) to the account.
+     * Requires auth. Call this after a guest registers or logs in.
+     */
+    public function claimGuestBookings(Request $request)
+    {
+        $user  = auth()->user();
+        $count = $this->claimGuestBookingsByEmail($user->email, $user->id);
+
+        return $this->sendSuccess([
+            'claimed' => $count,
+            'message' => $count > 0
+                ? __(':count booking(s) have been linked to your account.', ['count' => $count])
+                : __('No unassigned bookings found for your email address.'),
+        ]);
     }
 }

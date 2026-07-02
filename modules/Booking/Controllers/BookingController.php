@@ -374,6 +374,9 @@ class BookingController extends \App\Http\Controllers\Controller
                 Log::warning("SendMailUserRegistered: " . $exception->getMessage());
             }
             $user->assignRole('customer');
+
+            // Claim any previous guest bookings made with the same email
+            $this->claimGuestBookingsByEmail($user->email, $user->id);
         }
 
         $booking->addMeta('locale', app()->getLocale());
@@ -743,5 +746,17 @@ class BookingController extends \App\Http\Controllers\Controller
         if (!is_admin() and $booking->vendor_id != auth()->id() and $booking->customer_id != auth()->id()) abort(404);
 
         return view('Booking::frontend.detail.modal', ['booking' => $booking, 'service' => $booking->service]);
+    }
+
+    /**
+     * Assign all unowned guest bookings matching the given email to a user.
+     * Called automatically when a guest registers (either during checkout or later).
+     */
+    protected function claimGuestBookingsByEmail(string $email, int $userId): int
+    {
+        return $this->booking::where('email', $email)
+            ->whereNull('customer_id')
+            ->whereNotIn('status', ['draft'])
+            ->update(['customer_id' => $userId]);
     }
 }

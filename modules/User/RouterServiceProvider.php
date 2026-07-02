@@ -110,5 +110,10 @@ class RouterServiceProvider extends ServiceProvider
             ->middleware(['api', 'auth:sanctum'])
             ->namespace($this->adminModuleNamespace)
             ->group(__DIR__ . '/Routes/api-admin.php');
+
+        Route::prefix('api/admin')
+            ->middleware(['api', 'auth:sanctum'])
+            ->namespace($this->adminModuleNamespace)
+            ->group(__DIR__ . '/Routes/api-admin.php');
     }
 }

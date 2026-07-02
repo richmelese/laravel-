@@ -102,6 +102,16 @@ class EventController extends Controller
         return view('Event::frontend.search', $data);
     }
 
+    public function filters()
+    {
+        return response()->json([
+            'data' => [
+                'price' => $this->eventClass::getMinMaxPrice(),
+                'attributes' => Attributes::getAllAttributesForApi('event'),
+            ],
+        ]);
+    }
+
     public function detail(Request $request, $slug)
     {
         $row = $this->eventClass::where('slug', $slug)->with(['location','translation','hasWishList'])->first();;

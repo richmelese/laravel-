@@ -99,6 +99,16 @@ class CarController extends Controller
         return view('Car::frontend.search', $data);
     }
 
+    public function filters()
+    {
+        return response()->json([
+            'data' => [
+                'price' => $this->carClass::getMinMaxPrice(),
+                'attributes' => Attributes::getAllAttributesForApi('car'),
+            ],
+        ]);
+    }
+
     public function detail(Request $request, $slug)
     {
         $row = $this->carClass::where('slug', $slug)->with(['location','translation','hasWishList'])->first();;

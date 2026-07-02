@@ -255,20 +255,24 @@ class HotelController extends AdminController
     public function store( Request $request, $id ){
 
         if(is_demo_mode()){
+            if($this->isApiRequest($request)) return response()->json(['message' => __('DEMO MODE: can not add data')], 403);
             return redirect()->back()->with('danger',__("DEMO MODE: can not add data"));
         }
         $request->validate([
-            'video'=>'nullable|url'
+            'title' => 'required|string|max:255',
+            'video' => 'nullable|url',
         ]);
         if($id>0){
             $this->checkPermission('hotel_update');
             $row = $this->hotelClass::find($id);
             if (empty($row)) {
+                if($this->isApiRequest($request)) return response()->json(['message' => __('Hotel not found')], 404);
                 return redirect(route('hotel.admin.index'));
             }
 
             if($row->author_id != Auth::id() and !$this->hasPermission('hotel_manage_others'))
             {
+                if($this->isApiRequest($request)) return response()->json(['message' => __('Forbidden')], 403);
                 return redirect(route('hotel.admin.index'));
             }
         }else{
@@ -296,8 +300,6 @@ class HotelController extends AdminController
             'check_in_time',
             'check_out_time',
             'allow_full_day',
-            'enable_extra_price',
-            'extra_price',
             'enable_extra_price',
             'extra_price',
             'status',
@@ -329,27 +331,34 @@ class HotelController extends AdminController
 
             if($id > 0 ){
                 event(new UpdatedServiceEvent($row));
-
+                if($this->isApiRequest($request)) {
+                    return response()->json(['message' => __('Hotel updated'), 'data' => $row->fresh()]);
+                }
                 return back()->with('success',  __('Hotel updated') );
             }else{
                 event(new CreatedServicesEvent($row));
-
+                if($this->isApiRequest($request)) {
+                    return response()->json(['message' => __('Hotel created'), 'data' => $row->fresh()], 201);
+                }
                 return redirect(route('hotel.admin.edit',$row->id))->with('success', __('Hotel created') );
             }
+        }
+        if($this->isApiRequest($request)) {
+            return response()->json(['message' => __('Could not save hotel')], 500);
         }
     }
 
     public function saveTerms($row, $request)
     {
-        $this->checkPermission('hotel_manage_attributes');
+        if (!$this->hasPermission('hotel_manage_attributes')) return;
         if (empty($request->input('terms'))) {
             $this->hotelTermClass::where('target_id', $row->id)->delete();
         } else {
             $term_ids = $request->input('terms');
             foreach ($term_ids as $term_id) {
                 $this->hotelTermClass::firstOrCreate([
-                    'term_id' => $term_id,
-                    'target_id' => $row->id
+                    'term_id'   => $term_id,
+                    'target_id' => $row->id,
                 ]);
             }
             $this->hotelTermClass::where('target_id', $row->id)->whereNotIn('term_id', $term_ids)->delete();
@@ -358,86 +367,78 @@ class HotelController extends AdminController
 
     public function bulkEdit(Request $request)
     {
-        $ids = $request->input('ids');
+        $ids    = $request->input('ids');
         $action = $request->input('action');
+
         if (empty($ids) or !is_array($ids)) {
+            if ($this->isApiRequest($request)) return response()->json(['message' => __('No items selected!')], 422);
             return redirect()->back()->with('error', __('No items selected!'));
         }
         if (empty($action)) {
+            if ($this->isApiRequest($request)) return response()->json(['message' => __('Please select an action!')], 422);
             return redirect()->back()->with('error', __('Please select an action!'));
         }
-        switch ($action){
+
+        switch ($action) {
             case "delete":
                 foreach ($ids as $id) {
                     $query = $this->hotelClass::where("id", $id);
                     if (!$this->hasPermission('hotel_manage_others')) {
-                        $query->where("create_user", Auth::id());
+                        $query->where("author_id", Auth::id());
                         $this->checkPermission('hotel_delete');
                     }
                     $row = $query->first();
-                    if(!empty($row)){
-                        $row->delete();
-                        event(new UpdatedServiceEvent($row));
-
-                    }
+                    if (!empty($row)) { $row->delete(); event(new UpdatedServiceEvent($row)); }
                 }
-                return redirect()->back()->with('success', __('Deleted success!'));
+                $msg = __('Deleted success!');
                 break;
             case "permanently_delete":
                 foreach ($ids as $id) {
                     $query = $this->hotelClass::where("id", $id);
                     if (!$this->hasPermission('hotel_manage_others')) {
-                        $query->where("create_user", Auth::id());
+                        $query->where("author_id", Auth::id());
                         $this->checkPermission('hotel_delete');
                     }
                     $row = $query->withTrashed()->first();
-                    if($row){
-                        $row->forceDelete();
-                    }
+                    if ($row) $row->forceDelete();
                 }
-                return redirect()->back()->with('success', __('Permanently delete success!'));
+                $msg = __('Permanently delete success!');
                 break;
             case "recovery":
                 foreach ($ids as $id) {
                     $query = $this->hotelClass::withTrashed()->where("id", $id);
                     if (!$this->hasPermission('hotel_manage_others')) {
-                        $query->where("create_user", Auth::id());
+                        $query->where("author_id", Auth::id());
                         $this->checkPermission('hotel_delete');
                     }
-                    $row= $query->first();
-
-                    if(!empty($row)){
-                        $row->restore();
-                        event(new UpdatedServiceEvent($row));
-                    }
+                    $row = $query->first();
+                    if (!empty($row)) { $row->restore(); event(new UpdatedServiceEvent($row)); }
                 }
-                return redirect()->back()->with('success', __('Recovery success!'));
+                $msg = __('Recovery success!');
                 break;
             case "clone":
                 $this->checkPermission('hotel_create');
                 foreach ($ids as $id) {
                     (new $this->hotelClass())->saveCloneByID($id);
                 }
-                return redirect()->back()->with('success', __('Clone success!'));
+                $msg = __('Clone success!');
                 break;
             default:
-                // Change status
                 foreach ($ids as $id) {
                     $query = $this->hotelClass::where("id", $id);
                     if (!$this->hasPermission('hotel_manage_others')) {
-                        $query->where("create_user", Auth::id());
+                        $query->where("author_id", Auth::id());
                         $this->checkPermission('hotel_update');
                     }
                     $row = $query->first();
-                    $row->status  = $action;
-                    $row->save();
-                    event(new UpdatedServiceEvent($row));
-
-//                    $query->update(['status' => $action]);
+                    if (!empty($row)) { $row->status = $action; $row->save(); event(new UpdatedServiceEvent($row)); }
                 }
-                return redirect()->back()->with('success', __('Update success!'));
+                $msg = __('Update success!');
                 break;
         }
+
+        if ($this->isApiRequest($request)) return response()->json(['message' => $msg]);
+        return redirect()->back()->with('success', $msg);
     }
     public function getForSelect2(Request $request)
     {

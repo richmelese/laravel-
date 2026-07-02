@@ -277,6 +277,7 @@ class EventController extends AdminController
             $this->checkPermission('event_create');
             $row = new $this->event();
             $row->status = "publish";
+            $row->author_id = Auth::id();
         }
         $dataKeys = [
             'title',

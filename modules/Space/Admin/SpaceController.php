@@ -197,6 +197,17 @@ class SpaceController extends AdminController
             ],
             'page_title'     => __("Add new Space")
         ];
+        if ($this->isApiRequest($request)) {
+            return response()->json([
+                'data' => [
+                    'row'               => $data['row'],
+                    'attributes'        => $data['attributes'],
+                    'space_location'    => $data['space_location'],
+                    'location_category' => $data['location_category'],
+                    'translation'       => $data['translation'],
+                ],
+            ]);
+        }
         return view('Space::admin.detail', $data);
     }
 
@@ -205,23 +216,29 @@ class SpaceController extends AdminController
         $this->checkPermission('space_update');
         $row = $this->space::find($id);
         if (empty($row)) {
+            if ($this->isApiRequest($request)) {
+                return response()->json(['message' => __('Space not found')], 404);
+            }
             return redirect(route('space.admin.index'));
         }
-        $translation = $row->translate($request->query('lang',get_main_lang()));
+        $translation = $row->translate($request->query('lang', get_main_lang()));
         if (!$this->hasPermission('space_manage_others')) {
             if ($row->author_id != Auth::id()) {
+                if ($this->isApiRequest($request)) {
+                    return response()->json(['message' => __('Forbidden')], 403);
+                }
                 return redirect(route('space.admin.index'));
             }
         }
         $data = [
-            'row'            => $row,
-            'translation'    => $translation,
-            "selected_terms" => $row->terms->pluck('term_id'),
-            'attributes'     => $this->attributes::where('service', 'space')->get(),
-            'space_location'  => $this->location::where('status', 'publish')->get()->toTree(),
+            'row'               => $row,
+            'translation'       => $translation,
+            'selected_terms'    => $row->terms->pluck('term_id'),
+            'attributes'        => $this->attributes::where('service', 'space')->get(),
+            'space_location'    => $this->location::where('status', 'publish')->get()->toTree(),
             'location_category' => $this->locationCategoryClass::where('status', 'publish')->get(),
-            'enable_multi_lang'=>true,
-            'breadcrumbs'    => [
+            'enable_multi_lang' => true,
+            'breadcrumbs'       => [
                 [
                     'name' => __('Spaces'),
                     'url'  => route('space.admin.index')
@@ -231,31 +248,45 @@ class SpaceController extends AdminController
                     'class' => 'active'
                 ],
             ],
-            'page_title'=>__("Edit: :name",['name'=>$row->title])
+            'page_title' => __("Edit: :name", ['name' => $row->title])
         ];
+        if ($this->isApiRequest($request)) {
+            return response()->json([
+                'data' => [
+                    'row'               => $data['row'],
+                    'translation'       => $data['translation'],
+                    'selected_terms'    => $data['selected_terms'],
+                    'attributes'        => $data['attributes'],
+                    'space_location'    => $data['space_location'],
+                    'location_category' => $data['location_category'],
+                    'enable_multi_lang' => $data['enable_multi_lang'],
+                ],
+            ]);
+        }
         return view('Space::admin.detail', $data);
     }
 
-    public function store( Request $request, $id ){
-
-        if(is_demo_mode()){
-            return redirect()->back()->with('danger',__("DEMO MODE: can not add data"));
+    public function store(Request $request, $id)
+    {
+        if (is_demo_mode()) {
+            if ($this->isApiRequest($request)) return response()->json(['message' => __('DEMO MODE: can not add data')], 403);
+            return redirect()->back()->with('danger', __("DEMO MODE: can not add data"));
         }
         $request->validate([
-            'video'=>'nullable|url'
+            'video' => 'nullable|url'
         ]);
-        if($id>0){
+        if ($id > 0) {
             $this->checkPermission('space_update');
             $row = $this->space::find($id);
             if (empty($row)) {
+                if ($this->isApiRequest($request)) return response()->json(['message' => __('Space not found')], 404);
                 return redirect(route('space.admin.index'));
             }
-
-            if($row->author_id != Auth::id() and !$this->hasPermission('space_manage_others'))
-            {
+            if ($row->author_id != Auth::id() && !$this->hasPermission('space_manage_others')) {
+                if ($this->isApiRequest($request)) return response()->json(['message' => __('Forbidden')], 403);
                 return redirect(route('space.admin.index'));
             }
-        }else{
+        } else {
             $this->checkPermission('space_create');
             $row = new $this->space();
             $row->status = "publish";
@@ -279,7 +310,6 @@ class SpaceController extends AdminController
             'map_lat',
             'map_lng',
             'map_zoom',
-            'price',
             'sale_price',
             'max_guests',
             'enable_extra_price',
@@ -290,36 +320,41 @@ class SpaceController extends AdminController
             'min_day_stays',
             'surrounding',
             'discount_by_days',
-
         ];
-        if($this->hasPermission('space_manage_others')){
+        if ($this->hasPermission('space_manage_others')) {
             $dataKeys[] = 'author_id';
         }
 
-        $row->fillByAttr($dataKeys,$request->input());
-        if($request->input('slug')){
+        $row->fillByAttr($dataKeys, $request->input());
+        if ($request->input('slug')) {
             $row->slug = $request->input('slug');
         }
-	    $row->ical_import_url  = $request->ical_import_url;
+        $row->ical_import_url    = $request->ical_import_url;
         $row->enable_service_fee = $request->input('enable_service_fee');
-        $row->service_fee = $request->input('service_fee');
+        $row->service_fee        = $request->input('service_fee');
 
-        $res = $row->saveOriginOrTranslation($request->input('lang'),true);
+        $res = $row->saveOriginOrTranslation($request->input('lang'), true);
 
         if ($res) {
-            if(!$request->input('lang') or is_default_lang($request->input('lang'))) {
+            if (!$request->input('lang') || is_default_lang($request->input('lang'))) {
                 $this->saveTerms($row, $request);
             }
-
-            if($id > 0 ){
+            if ($id > 0) {
                 event(new UpdatedServiceEvent($row));
-
-                return back()->with('success',  __('Space updated') );
-            }else{
+                if ($this->isApiRequest($request)) {
+                    return response()->json(['message' => __('Space updated'), 'data' => $row->fresh()]);
+                }
+                return back()->with('success', __('Space updated'));
+            } else {
                 event(new CreatedServicesEvent($row));
-
-                return redirect(route('space.admin.edit',$row->id))->with('success', __('Space created') );
+                if ($this->isApiRequest($request)) {
+                    return response()->json(['message' => __('Space created'), 'data' => $row->fresh()], 201);
+                }
+                return redirect(route('space.admin.edit', $row->id))->with('success', __('Space created'));
             }
+        }
+        if ($this->isApiRequest($request)) {
+            return response()->json(['message' => __('Could not save space')], 500);
         }
     }
 
@@ -342,88 +377,78 @@ class SpaceController extends AdminController
 
     public function bulkEdit(Request $request)
     {
-
-        $ids = $request->input('ids');
+        $ids    = $request->input('ids');
         $action = $request->input('action');
-        if (empty($ids) or !is_array($ids)) {
+
+        if (empty($ids) || !is_array($ids)) {
+            if ($this->isApiRequest($request)) return response()->json(['message' => __('No items selected!')], 422);
             return redirect()->back()->with('error', __('No items selected!'));
         }
         if (empty($action)) {
+            if ($this->isApiRequest($request)) return response()->json(['message' => __('Please select an action!')], 422);
             return redirect()->back()->with('error', __('Please select an action!'));
         }
 
-        switch ($action){
+        switch ($action) {
             case "delete":
                 foreach ($ids as $id) {
                     $query = $this->space::where("id", $id);
                     if (!$this->hasPermission('space_manage_others')) {
-                        $query->where("create_user", Auth::id());
+                        $query->where("author_id", Auth::id());
                         $this->checkPermission('space_delete');
                     }
-                    $row  =  $query->first();
-                    if(!empty($row)){
-                        $row->delete();
-                        event(new UpdatedServiceEvent($row));
-
-                    }
+                    $row = $query->first();
+                    if (!empty($row)) { $row->delete(); event(new UpdatedServiceEvent($row)); }
                 }
-                return redirect()->back()->with('success', __('Deleted success!'));
+                $msg = __('Deleted success!');
                 break;
             case "permanently_delete":
                 foreach ($ids as $id) {
                     $query = $this->space::where("id", $id);
                     if (!$this->hasPermission('space_manage_others')) {
-                        $query->where("create_user", Auth::id());
+                        $query->where("author_id", Auth::id());
                         $this->checkPermission('space_delete');
                     }
-                    $row  =  $query->withTrashed()->first();
-                    if($row){
-                        $row->forceDelete();
-                    }
+                    $row = $query->withTrashed()->first();
+                    if ($row) $row->forceDelete();
                 }
-                return redirect()->back()->with('success', __('Permanently delete success!'));
+                $msg = __('Permanently delete success!');
                 break;
             case "recovery":
                 foreach ($ids as $id) {
                     $query = $this->space::withTrashed()->where("id", $id);
                     if (!$this->hasPermission('space_manage_others')) {
-                        $query->where("create_user", Auth::id());
+                        $query->where("author_id", Auth::id());
                         $this->checkPermission('space_delete');
                     }
                     $row = $query->first();
-                    if(!empty($row)){
-                        $row->restore();
-                        event(new UpdatedServiceEvent($row));
-
-                    }
+                    if (!empty($row)) { $row->restore(); event(new UpdatedServiceEvent($row)); }
                 }
-                return redirect()->back()->with('success', __('Recovery success!'));
+                $msg = __('Recovery success!');
                 break;
             case "clone":
                 $this->checkPermission('space_create');
                 foreach ($ids as $id) {
                     (new $this->space())->saveCloneByID($id);
                 }
-                return redirect()->back()->with('success', __('Clone success!'));
+                $msg = __('Clone success!');
                 break;
             default:
-                // Change status
                 foreach ($ids as $id) {
                     $query = $this->space::where("id", $id);
                     if (!$this->hasPermission('space_manage_others')) {
-                        $query->where("create_user", Auth::id());
+                        $query->where("author_id", Auth::id());
                         $this->checkPermission('space_update');
                     }
                     $row = $query->first();
-                    $row->status  = $action;
-                    $row->save();
-                        event(new UpdatedServiceEvent($row));
+                    if (!empty($row)) { $row->status = $action; $row->save(); event(new UpdatedServiceEvent($row)); }
                 }
-                return redirect()->back()->with('success', __('Update success!'));
+                $msg = __('Update success!');
                 break;
         }
 
-
+        if ($this->isApiRequest($request)) return response()->json(['message' => $msg]);
+        return redirect()->back()->with('success', $msg);
     }
 
     public function getForSelect2(Request $request)
