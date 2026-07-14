@@ -2,9 +2,12 @@
 
 namespace Modules\Boat\Controllers;
 
+use BC\QrCode\Facades\QrCode;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Modules\Boat\Models\Bus;
 use Modules\Boat\Models\BusBooking;
@@ -299,9 +302,28 @@ class BusBookingController extends Controller
 
     public function createBooking(Request $request)
     {
+        // Empty-string values from the frontend (e.g. an unset date picker) should be
+        // treated as "not provided" rather than failing format-specific validation rules.
+        $request->merge(array_map(
+            fn ($value) => $value === '' ? null : $value,
+            $request->only(['departure_date', 'boarding_point', 'dropping_point'])
+        ));
+
         $request->validate([
             'schedule_id' => 'required|integer|min:1',
-            'seat_number' => 'required|integer|min:1',
+            'seat_number' => 'required_without:seat_numbers|integer|min:1',
+            'seat_numbers' => 'required_without:seat_number|array|min:1',
+            'seat_numbers.*' => 'integer|min:1',
+            'trip_type' => 'nullable|string|in:one-way,round-trip',
+            'departure_date' => 'nullable|date',
+            'passengers' => 'nullable|integer|min:1',
+            'passenger_name' => 'required|string|max:150',
+            'email' => 'required|email|max:150',
+            'phone' => 'required|string|max:30',
+            'boarding_point' => 'nullable|string|max:191',
+            'dropping_point' => 'nullable|string|max:191',
+            'paid_luggage' => 'nullable|integer|min:0',
+            'special_luggage' => 'nullable|integer|min:0',
         ]);
 
         $user = auth('sanctum')->user();
@@ -309,39 +331,71 @@ class BusBookingController extends Controller
             return response()->json(['message' => 'Unauthenticated'], 401);
         }
 
-        $booking = DB::transaction(function () use ($request, $user) {
+        $seatNumbers = $request->filled('seat_numbers')
+            ? array_values(array_unique(array_map('intval', $request->input('seat_numbers'))))
+            : [$request->integer('seat_number')];
+
+        $result = DB::transaction(function () use ($request, $user, $seatNumbers) {
             $schedule = BusSchedule::query()->with('bus')->lockForUpdate()->find($request->integer('schedule_id'));
             if (!$schedule || !$schedule->bus) {
                 return response()->json(['message' => 'Schedule not found'], 404);
             }
-            $seatNumber = $request->integer('seat_number');
-            if ($seatNumber > (int) $schedule->bus->seat_capacity) {
+
+            $overCapacity = array_filter($seatNumbers, fn ($seat) => $seat > (int) $schedule->bus->seat_capacity);
+            if (!empty($overCapacity)) {
                 return response()->json(['message' => 'Seat number exceeds bus capacity'], 422);
             }
 
             $alreadyBooked = BusBooking::query()
                 ->where('schedule_id', $schedule->id)
-                ->where('seat_number', $seatNumber)
+                ->whereIn('seat_number', $seatNumbers)
                 ->whereIn('status', ['pending', 'confirmed'])
-                ->exists();
-            if ($alreadyBooked) {
-                return response()->json(['message' => 'Seat already booked'], 409);
+                ->pluck('seat_number');
+            if ($alreadyBooked->isNotEmpty()) {
+                return response()->json([
+                    'message' => 'Seat already booked',
+                    'seat_numbers' => $alreadyBooked->values(),
+                ], 409);
             }
 
-            return BusBooking::query()->create([
+            $bookingGroup = (string) Str::uuid();
+            $shared = [
                 'user_id' => $user->id,
+                'booking_group' => $bookingGroup,
                 'schedule_id' => $schedule->id,
-                'seat_number' => $seatNumber,
                 'status' => 'pending',
                 'payment_status' => 'unpaid',
-            ]);
+                'trip_type' => $request->input('trip_type'),
+                'departure_date' => $request->input('departure_date'),
+                'passengers' => $request->input('passengers'),
+                'passenger_name' => $request->input('passenger_name'),
+                'email' => $request->input('email'),
+                'phone' => $request->input('phone'),
+                'boarding_point' => $request->input('boarding_point'),
+                'dropping_point' => $request->input('dropping_point'),
+                'paid_luggage' => $request->input('paid_luggage', 0),
+                'special_luggage' => $request->input('special_luggage', 0),
+            ];
+
+            $bookings = collect($seatNumbers)->map(
+                fn ($seatNumber) => BusBooking::query()->create($shared + ['seat_number' => $seatNumber])
+            );
+
+            return $bookings;
         });
 
-        if ($booking instanceof \Illuminate\Http\JsonResponse) {
-            return $booking;
+        if ($result instanceof \Illuminate\Http\JsonResponse) {
+            return $result;
         }
 
-        return response()->json(['message' => 'Booking created', 'data' => $booking], 201);
+        // `data` is always a single object with `data.id` (the first seat's booking),
+        // even when multiple seats were booked in one request. `bookings` carries every
+        // row (each with its own id) so multi-seat clients can still access them all.
+        $data = $result->first()->toArray();
+        $data['seat_numbers'] = $result->pluck('seat_number')->values();
+        $data['bookings'] = $result->values();
+
+        return response()->json(['message' => 'Booking created', 'data' => $data], 201);
     }
 
     public function bookingDetail($id)
@@ -359,7 +413,155 @@ class BusBookingController extends Controller
             return response()->json(['message' => 'Booking not found'], 404);
         }
 
-        return response()->json(['data' => $booking]);
+        $data = $booking->toArray();
+        $data += $this->ticketLinks($booking);
+
+        return response()->json(['data' => $data]);
+    }
+
+    /**
+     * GET /api/bus-bookings/ticket/{ticket_code}
+     * Full ticket details for the paid booking (passenger, trip, and QR info), for
+     * rendering a printable/scannable ticket like the one shown after payment success.
+     * Public (no auth) — the customer lands here straight from the Chapa redirect with
+     * no Sanctum token, so access is gated by the unguessable ticket_code instead,
+     * same trust model as verifyTicket().
+     */
+    public function ticketByCode($ticketCode)
+    {
+        $booking = BusBooking::query()
+            ->with(['schedule.bus', 'schedule.route'])
+            ->where('ticket_code', $ticketCode)
+            ->first();
+
+        if (!$booking) {
+            return response()->json(['message' => 'Ticket not found'], 404);
+        }
+
+        if ($booking->payment_status !== 'paid') {
+            return response()->json(['message' => __('Ticket is not available until payment is confirmed.')], 422);
+        }
+
+        return response()->json(['data' => $this->buildTicketData($booking)]);
+    }
+
+    /**
+     * GET /api/bus-bookings/ticket/{ticket_code}/qr-code
+     * Renders the scannable QR image for the booking's ticket, encoding a link back
+     * to the public verify endpoint so staff/devices can validate it on scan.
+     * Public (no auth), same trust model as ticketByCode() above.
+     */
+    public function qrCodeByCode(Request $request, $ticketCode)
+    {
+        $booking = BusBooking::query()->where('ticket_code', $ticketCode)->first();
+        if (!$booking) {
+            return response()->json(['message' => 'Ticket not found'], 404);
+        }
+
+        if ($booking->payment_status !== 'paid') {
+            return response()->json(['message' => __('Ticket is not available until payment is confirmed.')], 422);
+        }
+
+        $size = max(100, min(1000, (int) $request->query('size', 300)));
+        $verifyUrl = route('api.bus_bookings.verify', ['ticket_code' => $booking->ticket_code]);
+        $svg = (string) QrCode::size($size)->generate($verifyUrl);
+
+        return response($svg)->header('Content-Type', 'image/svg+xml');
+    }
+
+    private function buildTicketData(BusBooking $booking): array
+    {
+        $schedule = $booking->schedule;
+        $bus = $schedule->bus;
+        $route = $schedule->route;
+
+        $payment = BusPayment::query()
+            ->where('booking_id', $booking->id)
+            ->where('status', 'success')
+            ->latest('paid_at')
+            ->first();
+        $amountPaid = $payment ? (float) $payment->amount : (float) ($schedule->price ?? 0);
+
+        return [
+            'ticket_id' => $booking->ticket_code,
+            'booking_id' => (int) $booking->id,
+            'seat_number' => (int) $booking->seat_number,
+            'passenger_name' => $booking->passenger_name,
+            'phone' => $booking->phone,
+            'email' => $booking->email,
+            'from_location' => $route->from_location ?? null,
+            'to_location' => $route->to_location ?? null,
+            'boarding_point' => $booking->boarding_point,
+            'dropping_point' => $booking->dropping_point,
+            'departure_time' => $schedule->departure_time,
+            'arrival_time' => $schedule->arrival_time,
+            'bus_title' => $bus->title ?? null,
+            'bus_level' => $bus->bus_type ?? null,
+            'bus_number' => $bus->bus_number ?? null,
+            'total_paid' => round($amountPaid, 2),
+            'currency' => strtoupper((string) ($bus->currency ?? 'ETB')),
+            'status' => $booking->status,
+            'payment_status' => $booking->payment_status,
+            'qr_code_url' => route('api.bus_bookings.qr_code', ['ticket_code' => $booking->ticket_code]),
+        ];
+    }
+
+    /**
+     * GET /api/bus-bookings/verify/{ticket_code}
+     * What the ticket QR code links to — whoever scans it (staff at boarding) lands
+     * here to confirm it's a real, paid, confirmed booking (no auth — the ticket_code
+     * itself is the secret). Renders a plain-language "Valid/Invalid" result page by
+     * default, same as the ticket page; add ?format=json for the raw payload.
+     */
+    public function verifyTicket(Request $request, $ticketCode)
+    {
+        $booking = BusBooking::query()
+            ->with(['schedule.bus', 'schedule.route'])
+            ->where('ticket_code', $ticketCode)
+            ->first();
+
+        if (!$booking) {
+            return $this->verifyResponse($request, false, [
+                'ticket_id' => $ticketCode,
+            ], 404);
+        }
+
+        $valid = $booking->payment_status === 'paid' && $booking->status === 'confirmed';
+
+        return $this->verifyResponse($request, $valid, [
+            'ticket_id' => $booking->ticket_code,
+            'passenger_name' => $booking->passenger_name,
+            'seat_number' => (int) $booking->seat_number,
+            'status' => $booking->status,
+            'payment_status' => $booking->payment_status,
+            'from_location' => $booking->schedule->route->from_location ?? null,
+            'to_location' => $booking->schedule->route->to_location ?? null,
+            'departure_time' => $booking->schedule->departure_time ?? null,
+        ]);
+    }
+
+    private function verifyResponse(Request $request, bool $valid, array $data, int $status = 200)
+    {
+        if ($request->query('format') === 'json') {
+            return response()->json(['valid' => $valid, 'data' => $data], $valid ? 200 : $status);
+        }
+
+        return response()->view('Boat::frontend.verify', [
+            'valid' => $valid,
+            'ticket' => $data,
+        ], $valid ? 200 : $status);
+    }
+
+    private function ticketLinks(BusBooking $booking): array
+    {
+        if (empty($booking->ticket_code)) {
+            return [];
+        }
+
+        return [
+            'ticket_url' => route('api.bus_bookings.ticket', ['ticket_code' => $booking->ticket_code]),
+            'qr_code_url' => route('api.bus_bookings.qr_code', ['ticket_code' => $booking->ticket_code]),
+        ];
     }
 
     public function payBooking(Request $request, $id)
@@ -383,6 +585,10 @@ class BusBookingController extends Controller
             return response()->json(['message' => 'Booking already paid', 'data' => $booking]);
         }
 
+        if (strtolower($request->input('payment_method')) === 'chapa') {
+            return $this->initiateChapaPayment($booking);
+        }
+
         $amount = (float) ($booking->schedule->price ?? 0);
         $payment = BusPayment::query()->create([
             'booking_id' => $booking->id,
@@ -404,7 +610,331 @@ class BusBookingController extends Controller
             'data' => [
                 'booking' => $booking->fresh(['schedule.bus', 'schedule.route']),
                 'payment' => $payment,
+            ] + $this->ticketLinks($booking),
+        ]);
+    }
+
+    // =========================================================================
+    // CHAPA
+    // =========================================================================
+
+    protected function initiateChapaPayment(BusBooking $booking)
+    {
+        $gateway = $this->findGateway('chapa');
+        $secretKey = $gateway ? trim((string) $gateway->getOption('secret_key')) : '';
+        if (!$gateway || empty($secretKey)) {
+            return response()->json(['message' => __('Chapa is not configured. Please contact support.')], 500);
+        }
+
+        $amount = (float) ($booking->schedule->price ?? 0);
+        if ($amount <= 0) {
+            return response()->json(['message' => __('Booking amount is invalid.')], 422);
+        }
+
+        $payment = BusPayment::query()->create([
+            'booking_id' => $booking->id,
+            'amount' => $amount,
+            'status' => 'pending',
+            'payment_method' => 'chapa',
+        ]);
+
+        $nameParts = explode(' ', trim((string) $booking->passenger_name) ?: 'Guest User', 2);
+        $currency = strtoupper((string) ($gateway->getOption('currency') ?: 'ETB'));
+        $txRef = 'BUS-' . $booking->id . '-' . $payment->id . '-' . time();
+
+        $payload = [
+            'amount' => number_format($amount, 2, '.', ''),
+            'currency' => $currency,
+            'email' => $booking->email ?: 'no-reply@example.com',
+            'first_name' => $nameParts[0] ?? 'Guest',
+            'last_name' => $nameParts[1] ?? '',
+            'phone_number' => $booking->phone ?? '',
+            'tx_ref' => $txRef,
+            'callback_url' => url('/api/bus-bookings/payment/webhook/chapa'),
+            'return_url' => url('/api/bus-bookings/payment/confirm/chapa') . '?tx_ref=' . $txRef,
+            'customization' => [
+                'title' => 'Bus Booking',
+                'description' => mb_substr(preg_replace('/[^A-Za-z0-9\-_. ]+/', '', 'Bus Booking ' . $booking->id), 0, 50),
+            ],
+            'meta' => [
+                'booking_id' => (string) $booking->id,
+                'payment_id' => (string) $payment->id,
+            ],
+        ];
+
+        $response = Http::timeout((int) max(5, (int) $gateway->getOption('timeout', 30)))
+            ->withOptions(['verify' => $this->chapaSslVerifyOption()])
+            ->withHeaders([
+                'Authorization' => 'Bearer ' . $secretKey,
+                'Content-Type' => 'application/json',
+            ])
+            ->post($this->chapaBaseUrl($gateway) . '/v1/transaction/initialize', $payload);
+
+        $json = $response->json();
+        $checkoutUrl = data_get($json, 'data.checkout_url');
+
+        if (!$response->successful() || empty($checkoutUrl)) {
+            $payment->status = 'fail';
+            $payment->payload = $json;
+            $payment->save();
+
+            Log::error('Chapa bus booking init failed', ['booking_id' => $booking->id, 'response' => $json]);
+
+            return response()->json([
+                'message' => $this->chapaFlattenMessage(data_get($json, 'message', __('Unable to initialize Chapa payment'))),
+            ], 500);
+        }
+
+        $payment->provider_reference = $txRef;
+        $payment->payload = $json;
+        $payment->save();
+
+        return response()->json([
+            'message' => __('Redirect the customer to payment_url to complete payment.'),
+            'payment_type' => 'redirect',
+            'payment_url' => $checkoutUrl,
+            'tx_ref' => $txRef,
+            'data' => [
+                'booking' => $booking,
+                'payment' => $payment,
             ],
         ]);
+    }
+
+    /**
+     * GET /api/bus-bookings/payment/confirm/chapa?tx_ref=...
+     * Chapa redirects the customer's browser here after they complete (or cancel) checkout.
+     */
+    public function confirmChapaPayment(Request $request)
+    {
+        $txRef = trim((string) $request->query('tx_ref', $request->query('trx_ref')));
+        if (empty($txRef)) {
+            return $this->paymentStatusResponse($request, 422, __('Missing payment reference'));
+        }
+
+        $payment = BusPayment::query()->where('provider_reference', $txRef)->first();
+        if (!$payment) {
+            return $this->paymentStatusResponse($request, 404, __('Payment not found'));
+        }
+
+        $booking = BusBooking::query()->with(['schedule.bus', 'schedule.route'])->find($payment->booking_id);
+        if (!$booking) {
+            return $this->paymentStatusResponse($request, 404, __('Booking not found'));
+        }
+
+        if ($booking->payment_status === 'paid') {
+            return $this->ticketResponse($request, $booking, __('Already paid.'));
+        }
+
+        $gateway = $this->findGateway('chapa');
+        $verification = $gateway ? $this->chapaVerify($gateway, $txRef) : [];
+        $success = $this->chapaIsSuccess($verification);
+
+        $payment->payload = $verification;
+
+        if ($success) {
+            $payment->status = 'success';
+            $payment->paid_at = now();
+            $payment->save();
+
+            $booking->payment_status = 'paid';
+            $booking->status = 'confirmed';
+            $booking->ticket_code = $booking->ticket_code ?: 'BUS-' . strtoupper(Str::random(10));
+            $booking->save();
+
+            return $this->ticketResponse(
+                $request,
+                $booking->fresh(['schedule.bus', 'schedule.route']),
+                __('Payment confirmed. Thank you!')
+            );
+        }
+
+        $payment->status = 'fail';
+        $payment->save();
+
+        return $this->paymentStatusResponse($request, 400, __('Payment verification failed. Please try again.'));
+    }
+
+    /**
+     * This is the Chapa return_url — a page the customer's browser lands on, so it
+     * always renders the printable ticket UI. Some REST clients (Postman, Insomnia,
+     * axios/fetch defaults) send "Accept: application/json" even for plain navigation,
+     * so content negotiation via wantsJson() isn't reliable here; JSON is only returned
+     * when explicitly asked for via ?format=json.
+     */
+    private function ticketResponse(Request $request, BusBooking $booking, string $message)
+    {
+        if ($request->query('format') === 'json') {
+            $data = $booking->toArray();
+            $data += $this->ticketLinks($booking);
+
+            return response()->json(['message' => $message, 'data' => $data]);
+        }
+
+        return response()->view('Boat::frontend.ticket', [
+            'message' => $message,
+            'ticket' => $this->buildTicketData($booking),
+        ]);
+    }
+
+    private function paymentStatusResponse(Request $request, int $status, string $message)
+    {
+        if ($request->query('format') === 'json') {
+            return response()->json(['message' => $message], $status);
+        }
+
+        return response()->view('Boat::frontend.payment-status', [
+            'message' => $message,
+            'success' => $status < 300,
+        ], $status);
+    }
+
+    /**
+     * POST /api/bus-bookings/payment/webhook/chapa
+     * Chapa's server calls this directly — no auth, no CSRF.
+     */
+    public function webhookChapaPayment(Request $request)
+    {
+        $txRef = trim((string) (
+            $request->input('tx_ref')
+            ?: $request->input('trx_ref')
+            ?: $request->input('reference')
+            ?: $request->input('data.tx_ref')
+            ?: $request->input('meta.tx_ref')
+        ));
+
+        if (empty($txRef)) {
+            Log::warning('Chapa bus webhook missing tx_ref', $request->all());
+            return response()->json(['status' => 'error', 'message' => 'tx_ref missing'], 400);
+        }
+
+        $payment = BusPayment::query()->where('provider_reference', $txRef)->first();
+        if (!$payment) {
+            Log::warning('Chapa bus webhook: payment not found', ['tx_ref' => $txRef]);
+            return response()->json(['status' => 'error', 'message' => 'Payment not found'], 404);
+        }
+
+        $booking = BusBooking::query()->find($payment->booking_id);
+        if (!$booking) {
+            return response()->json(['status' => 'error', 'message' => 'Booking not found'], 404);
+        }
+
+        if ($booking->payment_status === 'paid') {
+            return response()->json(['status' => 'success', 'message' => 'Already processed']);
+        }
+
+        $gateway = $this->findGateway('chapa');
+        $verification = $gateway ? $this->chapaVerify($gateway, $txRef) : [];
+        $success = $this->chapaIsSuccess($verification);
+
+        $payment->payload = $verification;
+
+        if ($success) {
+            $payment->status = 'success';
+            $payment->paid_at = now();
+            $payment->save();
+
+            $booking->payment_status = 'paid';
+            $booking->status = 'confirmed';
+            $booking->ticket_code = $booking->ticket_code ?: 'BUS-' . strtoupper(Str::random(10));
+            $booking->save();
+
+            return response()->json(['status' => 'success', 'message' => 'Payment processed']);
+        }
+
+        $payment->status = 'fail';
+        $payment->save();
+
+        return response()->json(['status' => 'error', 'message' => 'Verification failed'], 400);
+    }
+
+    /**
+     * GET /api/bus-bookings/payment/cancel/chapa?tx_ref=...
+     */
+    public function cancelChapaPayment(Request $request)
+    {
+        $txRef = trim((string) $request->query('tx_ref'));
+        $payment = BusPayment::query()->where('provider_reference', $txRef)->first();
+        if ($payment && $payment->status === 'pending') {
+            $payment->status = 'cancel';
+            $payment->save();
+        }
+
+        return response()->json(['message' => __('Payment was cancelled. You can try again.')]);
+    }
+
+    private function findGateway(string $id)
+    {
+        foreach (get_available_gateways() as $key => $gw) {
+            if ($key == $id) {
+                return $gw;
+            }
+        }
+        return null;
+    }
+
+    private function chapaVerify($gateway, string $txRef): array
+    {
+        $secretKey = trim((string) $gateway->getOption('secret_key'));
+        try {
+            $response = Http::timeout((int) max(5, (int) $gateway->getOption('timeout', 30)))
+                ->withOptions(['verify' => $this->chapaSslVerifyOption()])
+                ->withHeaders([
+                    'Authorization' => 'Bearer ' . $secretKey,
+                    'Content-Type' => 'application/json',
+                ])
+                ->get($this->chapaBaseUrl($gateway) . '/v1/transaction/verify/' . urlencode($txRef));
+
+            return (array) $response->json();
+        } catch (\Throwable $e) {
+            Log::warning('Chapa bus verify failed', ['tx_ref' => $txRef, 'error' => $e->getMessage()]);
+            return ['status' => 'failed', 'message' => $e->getMessage()];
+        }
+    }
+
+    private function chapaIsSuccess(array $verification): bool
+    {
+        $top = strtolower((string) data_get($verification, 'status'));
+        $data = strtolower((string) data_get($verification, 'data.status'));
+        $paymentStatus = strtolower((string) data_get($verification, 'data.payment_status'));
+        $tx = strtolower((string) data_get($verification, 'data.tx_status'));
+
+        $ok = in_array($top, ['success', 'successful'], true);
+        $states = ['success', 'successful', 'completed', 'paid'];
+        $nested = in_array($data, $states, true) || in_array($paymentStatus, $states, true) || in_array($tx, $states, true);
+        $noNested = $data === '' && $paymentStatus === '' && $tx === '';
+
+        return $ok && ($nested || $noNested);
+    }
+
+    private function chapaBaseUrl($gateway): string
+    {
+        if ($gateway->getOption('test')) {
+            return rtrim((string) $gateway->getOption('test_base_url', 'https://api.chapa.co'), '/');
+        }
+        return rtrim((string) $gateway->getOption('live_base_url', 'https://api.chapa.co'), '/');
+    }
+
+    private function chapaSslVerifyOption()
+    {
+        $bundle = app_path('certs/cacert.pem');
+        return is_file($bundle) ? $bundle : true;
+    }
+
+    private function chapaFlattenMessage($message): string
+    {
+        if (is_string($message) || is_numeric($message)) {
+            return (string) $message;
+        }
+        if (is_array($message)) {
+            $flat = [];
+            array_walk_recursive($message, static function ($item) use (&$flat) {
+                if (is_scalar($item) || $item === null) {
+                    $flat[] = (string) $item;
+                }
+            });
+            return implode(' ', $flat) ?: __('Payment failed');
+        }
+        return __('Payment failed');
     }
 }

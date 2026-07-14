@@ -316,7 +316,21 @@ class HotelController extends AdminController
             $dataKeys[] = 'author_id';
         }
 
-        $row->fillByAttr($dataKeys,$request->input());
+        $input = $request->input();
+        // Some API clients send the hotel policy list as "policies" instead of
+        // the "policy" column name used by the model/DB; accept either.
+        if (!array_key_exists('policy', $input) && array_key_exists('policies', $input)) {
+            $input['policy'] = $input['policies'];
+        }
+
+        // On update, only touch fields actually present in the payload so partial
+        // API requests (e.g. JSON clients that omit unchanged fields like "policy")
+        // don't wipe them back to null. Create keeps the full key set since the
+        // admin form always submits every field together.
+        $keysToFill = $id > 0
+            ? array_values(array_intersect($dataKeys, array_keys($input)))
+            : $dataKeys;
+        $row->fillByAttr($keysToFill,$input);
         if($request->input('slug')){
             $row->slug = $request->input('slug');
         }

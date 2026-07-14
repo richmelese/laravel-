@@ -37,3 +37,21 @@ Route::group(['prefix' => 'bus-bookings', 'middleware' => ['auth:sanctum']], fun
     Route::get('/{id}', 'BusBookingController@bookingDetail')->name('api.bus_bookings.show')->where('id', '[0-9]+');
     Route::post('/{id}/payments', 'BusBookingController@payBooking')->name('api.bus_bookings.pay')->where('id', '[0-9]+');
 });
+
+Route::group(['prefix' => 'bus-bookings'], function () {
+    // Ticket + QR + verification are all public and gated by ticket_code (an unguessable
+    // random token), not auth — the customer lands on the Chapa confirm redirect with no
+    // Sanctum token, so these must be reachable without one.
+    Route::get('/ticket/{ticket_code}', 'BusBookingController@ticketByCode')->name('api.bus_bookings.ticket');
+    Route::get('/ticket/{ticket_code}/qr-code', 'BusBookingController@qrCodeByCode')->name('api.bus_bookings.qr_code');
+    Route::get('/verify/{ticket_code}', 'BusBookingController@verifyTicket')->name('api.bus_bookings.verify');
+
+    // Chapa return URL — the customer's browser lands here after completing checkout.
+    Route::get('/payment/confirm/chapa', 'BusBookingController@confirmChapaPayment')->name('api.bus_bookings.payment.confirm.chapa');
+
+    // Chapa webhook — Chapa's server POSTs here directly (no auth, no CSRF).
+    Route::post('/payment/webhook/chapa', 'BusBookingController@webhookChapaPayment')->name('api.bus_bookings.payment.webhook.chapa')->withoutMiddleware(['web', 'csrf']);
+
+    // Cancel redirect — the customer clicks "Cancel" on the Chapa hosted page.
+    Route::get('/payment/cancel/chapa', 'BusBookingController@cancelChapaPayment')->name('api.bus_bookings.payment.cancel.chapa');
+});
