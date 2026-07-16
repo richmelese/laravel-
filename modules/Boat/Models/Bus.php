@@ -12,7 +12,7 @@ class Bus extends Model
     protected $table = 'bc_buses';
 
     protected $fillable = [
-        'title',
+        'bus_name',
         'description',
         'bus_number',
         'side_number',

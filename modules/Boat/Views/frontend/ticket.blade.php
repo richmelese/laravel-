@@ -232,6 +232,17 @@
                             <div class="label">{{ __('Total Fare Paid') }}</div>
                             <div class="value">{{ number_format($ticket['total_paid'], 2) }} {{ $ticket['currency'] }}</div>
                         </div>
+
+                        <div class="field">
+                            <div class="label">{{ __('Bus Side Number') }}</div>
+                            <div class="value">{{ $ticket['bus_side_number'] ?? '-' }}</div>
+                        </div>
+                        @if(!empty($ticket['price_in_words']))
+                        <div class="field">
+                            <div class="label">{{ __('Fare in Words') }}</div>
+                            <div class="value">{{ $ticket['price_in_words'] }}</div>
+                        </div>
+                        @endif
                     </div>
 
                     <div class="notice">

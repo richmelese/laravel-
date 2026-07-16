@@ -16,9 +16,10 @@ class BusController extends Controller
     private const MAX_PER_PAGE = 100;
     private const PUBLIC_COLUMNS = [
         'id',
-        'title',
+        'bus_name',
         'description',
         'bus_number',
+        'side_number',
         'bus_type',
         'seat_capacity',
         'driver_name',
@@ -30,6 +31,7 @@ class BusController extends Controller
         'departure_time',
         'arrival_time',
         'price',
+        'price_in_words',
         'image_id',
         'gallery',
         'status',

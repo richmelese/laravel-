@@ -24,7 +24,7 @@ class BusController extends Controller
 
         if ($search = $request->query('s')) {
             $query->where(function ($q) use ($search) {
-                $q->where('title', 'like', "%{$search}%")
+                $q->where('bus_name', 'like', "%{$search}%")
                     ->orWhere('bus_number', 'like', "%{$search}%")
                     ->orWhere('departure_city', 'like', "%{$search}%")
                     ->orWhere('arrival_city', 'like', "%{$search}%");
@@ -40,7 +40,7 @@ class BusController extends Controller
     {
         $query = Bus::onlyTrashed()->orderByDesc('id');
         if ($search = $request->query('s')) {
-            $query->where('title', 'like', "%{$search}%");
+            $query->where('bus_name', 'like', "%{$search}%");
         }
 
         return response()->json([
@@ -52,7 +52,7 @@ class BusController extends Controller
     {
         return response()->json([
             'data' => [
-                'title' => null,
+                'bus_name' => null,
                 'description' => null,
                 'bus_number' => null,
                 'side_number' => null,
@@ -120,7 +120,7 @@ class BusController extends Controller
     {
         $validated = $request->validate([
             'name' => 'nullable|string|max:255',
-            'title' => 'nullable|string|max:255',
+            'bus_name' => 'nullable|string|max:255',
             'description' => 'nullable|string',
             'content' => 'nullable|string',
             'bus_number' => 'nullable|string|max:255',
@@ -202,9 +202,9 @@ class BusController extends Controller
             }
         }
 
-        $validated['title'] = $validated['title'] ?? ($validated['name'] ?? null);
-        if (!$validated['title']) {
-            return response()->json(['message' => 'The name field is required.'], 422);
+        $validated['bus_name'] = $validated['bus_name'] ?? ($validated['name'] ?? null);
+        if (!$validated['bus_name']) {
+            return response()->json(['message' => 'The bus_name field is required.'], 422);
         }
 
         $row = $id > 0 ? Bus::find($id) : new Bus();
@@ -267,7 +267,7 @@ class BusController extends Controller
             $row->is_active = $validated['is_active'] ? 1 : 0;
         }
 
-        $row->slug = $this->makeUniqueBusSlug($row->slug ?: $validated['title'], $row->id ?: null);
+        $row->slug = $this->makeUniqueBusSlug($row->slug ?: $validated['bus_name'], $row->id ?: null);
 
         if ($row->exists) {
             $row->update_user = Auth::id();
