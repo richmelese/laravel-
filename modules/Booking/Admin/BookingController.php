@@ -2,6 +2,7 @@
 namespace Modules\Booking\Admin;
 
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Validation\Rule;
 use Modules\AdminController;
@@ -19,6 +20,38 @@ class BookingController extends AdminController
     protected function isApiRequest(Request $request): bool
     {
         return $request->wantsJson() || $request->is('api-admin/*');
+    }
+
+    /**
+     * Add the booked service title to each API booking without causing an
+     * additional query for every row.
+     */
+    protected function appendServiceNames(Collection $bookings): Collection
+    {
+        $bookableServices = get_bookable_services();
+
+        $bookings->each(function (Booking $booking) {
+            $booking->setAttribute('service_name', null);
+        });
+
+        $bookings->groupBy('object_model')->each(function (Collection $group, string $objectModel) use ($bookableServices) {
+            $serviceClass = $bookableServices[$objectModel] ?? null;
+            $serviceIds = $group->pluck('object_id')->filter()->unique()->values();
+
+            if (!$serviceClass || $serviceIds->isEmpty()) {
+                return;
+            }
+
+            $serviceNames = $serviceClass::query()
+                ->whereIn('id', $serviceIds)
+                ->pluck('title', 'id');
+
+            $group->each(function (Booking $booking) use ($serviceNames) {
+                $booking->setAttribute('service_name', $serviceNames->get($booking->object_id));
+            });
+        });
+
+        return $bookings;
     }
 
     public function index(Request $request)
@@ -58,8 +91,9 @@ class BookingController extends AdminController
         ];
         if ($this->isApiRequest($request)) {
             $rows = $data['rows'];
+            $bookings = $this->appendServiceNames($rows->getCollection());
             return response()->json([
-                'data' => $rows->items(),
+                'data' => $bookings->values(),
                 'meta' => [
                     'current_page' => $rows->currentPage(),
                     'per_page'     => $rows->perPage(),
@@ -86,6 +120,7 @@ class BookingController extends AdminController
         if (empty($booking)) {
             return response()->json(['message' => __('Not found')], 404);
         }
+        $this->appendServiceNames(collect([$booking]));
         return response()->json([
             'data' => $booking,
             'statuses'       => config('booking.statuses'),
@@ -122,9 +157,11 @@ class BookingController extends AdminController
             $booking->tryRefundToWallet();
         }
         event(new BookingUpdatedEvent($booking));
+        $booking = $booking->fresh(['vendor']);
+        $this->appendServiceNames(collect([$booking]));
         return response()->json([
             'message' => __('Booking updated successfully'),
-            'data'    => $booking->fresh(['vendor']),
+            'data'    => $booking,
         ]);
     }
 
@@ -252,9 +289,10 @@ class BookingController extends AdminController
 
         $perPage = min(max((int) $request->input('per_page', 20), 1), 100);
         $rows    = $query->with(['vendor'])->paginate($perPage);
+        $bookings = $this->appendServiceNames($rows->getCollection());
 
         return response()->json([
-            'data' => $rows->items(),
+            'data' => $bookings->values(),
             'meta' => [
                 'current_page' => $rows->currentPage(),
                 'per_page'     => $rows->perPage(),

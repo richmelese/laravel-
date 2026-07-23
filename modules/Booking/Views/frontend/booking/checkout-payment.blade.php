@@ -20,6 +20,23 @@
                             {!! $gateway->getDisplayName() !!}
                         </div>
                         {!! $gateway->getDisplayHtml() !!}
+                        @if($fields = $gateway->getForm())
+                            @foreach($fields as $field)
+                                @if(($field['type'] ?? '') === 'radio')
+                                    <div class="form-group gateway-field">
+                                        <label>{{ $field['label'] ?? '' }}</label>
+                                        <div>
+                                            @foreach(($field['options'] ?? []) as $value => $optionLabel)
+                                                <label class="radio-inline" style="margin-right: 15px;">
+                                                    <input type="radio" name="{{ $field['id'] }}" value="{{ $value }}" {{ ($field['std'] ?? '') == $value ? 'checked' : '' }}>
+                                                    {{ $optionLabel }}
+                                                </label>
+                                            @endforeach
+                                        </div>
+                                    </div>
+                                @endif
+                            @endforeach
+                        @endif
                     </div>
                 </div>
             </div>

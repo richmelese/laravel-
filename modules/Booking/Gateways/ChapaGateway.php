@@ -55,9 +55,16 @@ class ChapaGateway extends BaseGateway
             [
                 'type' => 'input',
                 'id' => 'currency',
-                'label' => __('Currency'),
+                'label' => __('Alternate Currency'),
                 'std' => 'ETB',
-                'desc' => __('Default: ETB'),
+                'desc' => __('Only ETB and USD are supported. Set this to whichever of ETB/USD is NOT your site\'s Main Currency, to let customers choose it at checkout in addition to the Main Currency. Leave equal to the Main Currency to only ever charge in the Main Currency.'),
+            ],
+            [
+                'type' => 'input',
+                'input_type' => 'number',
+                'id' => 'exchange_rate',
+                'label' => __('Exchange Rate (ETB per 1 USD)'),
+                'desc' => __('Required for the Alternate Currency above to be offered to customers. Always enter how many ETB equal 1 USD (e.g. 130) — this meaning is fixed and does NOT change depending on whether ETB or USD is your Main Currency. The system automatically multiplies or divides by this rate as needed.'),
             ],
             [
                 'type' => 'input',
@@ -115,6 +122,119 @@ class ChapaGateway extends BaseGateway
         return (string) ($this->id ?: 'chapa');
     }
 
+    /**
+     * Currencies a customer may choose at checkout: always the site's Main
+     * Currency, plus the configured Alternate Currency when it differs from
+     * the Main Currency and an exchange rate has been set for it.
+     *
+     * @return array<int,string>
+     */
+    public function getAvailableCurrencies(): array
+    {
+        $main = $this->getMainCurrency();
+        $alternate = strtoupper(trim((string) $this->getOption('currency')));
+        $exchangeRate = (float) $this->getOption('exchange_rate');
+
+        // Conversion (see convertAmount()) only understands the ETB/USD pair,
+        // regardless of which of the two is configured as Main Currency — so
+        // only offer the alternate when both currencies are actually ETB/USD.
+        $isSupportedPair = in_array($main, ['ETB', 'USD'], true) && in_array($alternate, ['ETB', 'USD'], true);
+
+        $currencies = [$main];
+        if ($alternate !== '' && $alternate !== $main && $exchangeRate > 0 && $isSupportedPair) {
+            $currencies[] = $alternate;
+        }
+
+        return $currencies;
+    }
+
+    /**
+     * Convert an amount between ETB and USD. The configured Exchange Rate
+     * always means "how many ETB equal 1 USD" — a fixed, real-world
+     * convention that does NOT depend on which currency is the site's Main
+     * Currency. Direction (multiply vs divide) is chosen from the actual
+     * currency codes involved, never from their main/alternate role, so this
+     * gives the correct result whether Main Currency is ETB or USD.
+     */
+    public function convertAmount(float $amount, string $fromCurrency, string $toCurrency): float
+    {
+        $fromCurrency = strtoupper($fromCurrency);
+        $toCurrency = strtoupper($toCurrency);
+
+        if ($fromCurrency === $toCurrency) {
+            return $amount;
+        }
+
+        if (!in_array($fromCurrency, ['ETB', 'USD'], true) || !in_array($toCurrency, ['ETB', 'USD'], true)) {
+            throw new Exception(__("Chapa currency conversion only supports ETB and USD"));
+        }
+
+        $etbPerUsd = (float) $this->getOption('exchange_rate');
+        if ($etbPerUsd <= 0) {
+            throw new Exception(__(
+                "Exchange rate from :from to :to must be configured on the Chapa gateway. Please contact site owner",
+                ['from' => $fromCurrency, 'to' => $toCurrency]
+            ));
+        }
+
+        if ($fromCurrency === 'USD' && $toCurrency === 'ETB') {
+            return $amount * $etbPerUsd;
+        }
+
+        // ETB -> USD
+        return $amount / $etbPerUsd;
+    }
+
+    /**
+     * Exposed to the frontend/API (see BaseGateway::getForm / Api\Controllers\BookingController::getGatewaysForApi)
+     * so the checkout UI can render a currency picker when more than one
+     * currency is available. Returns null when there's nothing to choose.
+     */
+    public function getForm()
+    {
+        $currencies = $this->getAvailableCurrencies();
+        if (count($currencies) < 2) {
+            return null;
+        }
+
+        $mainCurrency = $this->getMainCurrency();
+
+        // "rates" lets the frontend compute a live preview per currency
+        // without another request: displayed_amount = booking_main_amount * rates[currency].
+        // The Main Currency always has rate 1 (no conversion).
+        $rates = [];
+        foreach ($currencies as $currency) {
+            $rates[$currency] = $currency === $mainCurrency ? 1 : $this->convertAmount(1, $mainCurrency, $currency);
+        }
+
+        return [
+            [
+                'type' => 'radio',
+                'id' => 'chapa_currency',
+                'label' => __('Pay with'),
+                'options' => array_combine($currencies, $currencies),
+                'std' => $mainCurrency,
+                'main_currency' => $mainCurrency,
+                'rates' => $rates,
+            ],
+        ];
+    }
+
+    /**
+     * Resolve the currency to actually charge for this transaction: the
+     * customer's choice (if it's one of the currencies configured as
+     * available), otherwise the gateway's configured default.
+     */
+    protected function resolveRequestedCurrency(Request $request): string
+    {
+        $requested = strtoupper(trim((string) $request->input('chapa_currency')));
+        if ($requested !== '' && in_array($requested, $this->getAvailableCurrencies(), true)) {
+            return $requested;
+        }
+
+        return $this->getCurrency();
+    }
+
     public function process(Request $request, $booking, $service)
     {
         if (in_array($booking->status, [$booking::PAID, $booking::COMPLETED, $booking::CANCELLED], true)) {
@@ -132,9 +252,12 @@ class ChapaGateway extends BaseGateway
         $payment->save();
 
         $txRef = $this->buildBookingTxRef($booking, $payment);
+        $currency = $this->resolveRequestedCurrency($request);
+        $chargeAmount = $this->resolveChargeAmount((float) $booking->pay_now, $currency, $payment);
+
         $payload = [
-            'amount' => $this->formatAmount($booking->pay_now),
-            'currency' => $this->getCurrency(),
+            'amount' => $this->formatAmount($chargeAmount),
+            'currency' => $currency,
             'email' => $booking->email,
             'first_name' => $booking->first_name ?: __('Guest'),
             'last_name' => $booking->last_name ?: __('User'),
@@ -188,7 +311,13 @@ class ChapaGateway extends BaseGateway
             Log::warning($e->getMessage());
         }
 
-        return response()->json(['url' => $checkoutUrl]);
+        return response()->json([
+            'url' => $checkoutUrl,
+            'amount' => $this->formatAmount($chargeAmount),
+            'currency' => $currency,
+            'main_amount' => $this->formatAmount((float) $booking->pay_now),
+            'main_currency' => $this->getMainCurrency(),
+        ]);
     }
 
     public function confirmPayment(Request $request)
@@ -446,6 +575,37 @@ class ChapaGateway extends BaseGateway
     protected function getCurrency(): string
     {
         return strtoupper((string) ($this->getOption('currency') ?: setting_item('currency_main', 'ETB')));
+    }
+
+    protected function getMainCurrency(): string
+    {
+        return strtoupper((string) setting_item('currency_main', 'ETB'));
+    }
+
+    /**
+     * Booking totals are always stored in the site's Main Currency. When the
+     * Chapa gateway is configured to charge in a different currency (e.g. the
+     * site runs on ETB but Chapa should charge USD cards), the stored amount
+     * must be converted using the gateway's configured exchange rate before
+     * being sent to Chapa — otherwise the ETB-denominated number would be
+     * sent as-is under the USD label, wildly overcharging the customer.
+     */
+    protected function resolveChargeAmount(float $mainAmount, string $chargeCurrency, Payment $payment): float
+    {
+        $mainCurrency = $this->getMainCurrency();
+        if ($chargeCurrency === $mainCurrency) {
+            return $mainAmount;
+        }
+
+        $convertedAmount = $this->convertAmount($mainAmount, $mainCurrency, $chargeCurrency);
+
+        $payment->addMeta('chapa_main_currency', $mainCurrency);
+        $payment->addMeta('chapa_main_amount', $mainAmount);
+        $payment->addMeta('chapa_exchange_rate', (float) $this->getOption('exchange_rate'));
+        $payment->addMeta('chapa_converted_currency', $chargeCurrency);
+        $payment->addMeta('chapa_converted_amount', $convertedAmount);
+
+        return $convertedAmount;
     }
 
     protected function getBaseUrl(): string

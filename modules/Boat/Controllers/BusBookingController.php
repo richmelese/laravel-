@@ -588,7 +588,7 @@ class BusBookingController extends Controller
         }
 
         if (strtolower($request->input('payment_method')) === 'chapa') {
-            return $this->initiateChapaPayment($booking);
+            return $this->initiateChapaPayment($booking, $request);
         }
 
         $amount = (float) ($booking->schedule->price ?? 0);
@@ -620,7 +620,7 @@ class BusBookingController extends Controller
     // CHAPA
     // =========================================================================
 
-    protected function initiateChapaPayment(BusBooking $booking)
+    protected function initiateChapaPayment(BusBooking $booking, Request $request)
     {
         $gateway = $this->findGateway('chapa');
         $secretKey = $gateway ? trim((string) $gateway->getOption('secret_key')) : '';
@@ -641,11 +641,48 @@ class BusBookingController extends Controller
         ]);
 
         $nameParts = explode(' ', trim((string) $booking->passenger_name) ?: 'Guest User', 2);
+        $mainCurrency = strtoupper((string) setting_item('currency_main', 'ETB'));
         $currency = strtoupper((string) ($gateway->getOption('currency') ?: 'ETB'));
+
+        // Let the client choose ETB (local) or the configured alternate currency
+        // (e.g. USD for card payments) via the "currency" request field, same
+        // list ChapaGateway::getAvailableCurrencies() exposes to web checkout.
+        $availableCurrencies = method_exists($gateway, 'getAvailableCurrencies')
+            ? $gateway->getAvailableCurrencies()
+            : [$mainCurrency];
+        $requestedCurrency = strtoupper(trim((string) $request->input('currency')));
+        if ($requestedCurrency !== '' && in_array($requestedCurrency, $availableCurrencies, true)) {
+            $currency = $requestedCurrency;
+        }
+
         $txRef = 'BUS-' . $booking->id . '-' . $payment->id . '-' . time();
 
+        $conversion = null;
+        $chargeAmount = $amount;
+        if ($currency !== $mainCurrency) {
+            // Delegate to ChapaGateway::convertAmount() so both booking flows use the
+            // exact same ETB<->USD conversion direction — see that method for why the
+            // rate can't just be blindly divided/multiplied based on main-vs-alternate.
+            try {
+                $chargeAmount = $gateway->convertAmount($amount, $mainCurrency, $currency);
+            } catch (\Throwable $e) {
+                $payment->status = 'fail';
+                $payment->save();
+
+                return response()->json(['message' => $e->getMessage()], 500);
+            }
+
+            $conversion = [
+                'main_currency' => $mainCurrency,
+                'main_amount' => $amount,
+                'exchange_rate' => (float) $gateway->getOption('exchange_rate'),
+                'converted_currency' => $currency,
+                'converted_amount' => $chargeAmount,
+            ];
+        }
+
         $payload = [
-            'amount' => number_format($amount, 2, '.', ''),
+            'amount' => number_format($chargeAmount, 2, '.', ''),
             'currency' => $currency,
             'email' => $booking->email ?: 'no-reply@example.com',
             'first_name' => $nameParts[0] ?? 'Guest',
@@ -677,7 +714,7 @@ class BusBookingController extends Controller
 
         if (!$response->successful() || empty($checkoutUrl)) {
             $payment->status = 'fail';
-            $payment->payload = $json;
+            $payment->payload = $conversion ? ['response' => $json, 'conversion' => $conversion] : $json;
             $payment->save();
 
             Log::error('Chapa bus booking init failed', ['booking_id' => $booking->id, 'response' => $json]);
@@ -688,7 +725,7 @@ class BusBookingController extends Controller
         }
 
         $payment->provider_reference = $txRef;
-        $payment->payload = $json;
+        $payment->payload = $conversion ? ['response' => $json, 'conversion' => $conversion] : $json;
         $payment->save();
 
         return response()->json([
@@ -696,6 +733,10 @@ class BusBookingController extends Controller
             'payment_type' => 'redirect',
             'payment_url' => $checkoutUrl,
             'tx_ref' => $txRef,
+            'amount' => number_format($chargeAmount, 2, '.', ''),
+            'currency' => $currency,
+            'main_amount' => number_format($amount, 2, '.', ''),
+            'main_currency' => $mainCurrency,
             'data' => [
                 'booking' => $booking,
                 'payment' => $payment,
