@@ -384,7 +384,16 @@ class MedicalBookingController extends Controller
         $firstName = $nameParts[0] ?? $booking->name;
         $lastName  = $nameParts[1] ?? '';
 
-        $currency = strtoupper((string) ($gatewayInst->getOption('currency') ?: 'ETB'));
+        $mainCurrency = strtoupper((string) setting_item('currency_main', 'ETB'));
+        $currency = strtoupper((string) ($gatewayInst->getOption('currency') ?: $mainCurrency));
+        $chargeAmount = (float) $booking->fee;
+        if ($currency !== $mainCurrency && method_exists($gatewayInst, 'convertAmount')) {
+            try {
+                $chargeAmount = $gatewayInst->convertAmount($chargeAmount, $mainCurrency, $currency);
+            } catch (\Throwable $e) {
+                return response()->json(['message' => $e->getMessage()], 500);
+            }
+        }
         $txRef    = 'MB-' . $booking->booking_code . '-' . time();
 
         $returnUrl   = url('/api/medical-booking/payment/confirm/chapa?booking_code=' . $booking->booking_code . '&tx_ref=' . $txRef);
@@ -395,7 +404,7 @@ class MedicalBookingController extends Controller
         $descClean = mb_substr(preg_replace('/[^A-Za-z0-9\-_. ]+/', '', $descRaw), 0, 50);
 
         $payload = [
-            'amount'       => number_format((float) $booking->fee, 2, '.', ''),
+            'amount'       => number_format($chargeAmount, 2, '.', ''),
             'currency'     => $currency,
             'email'        => $booking->email,
             'first_name'   => $firstName,

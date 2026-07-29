@@ -69,10 +69,23 @@ class ChapaGatewayTest extends TestCase
         $wrongCurrency['data']['currency'] = 'USD';
         $this->assertFalse($gateway->verified($wrongCurrency, $payment, 'TX-1'));
     }
+
+    public function test_etb_is_divided_by_the_chapa_usd_rate(): void
+    {
+        $gateway = new TestableChapaGateway('chapa');
+
+        $this->assertSame(1.0, $gateway->convertAmount(130, 'ETB', 'USD'));
+        $this->assertSame(130.0, $gateway->convertAmount(1, 'USD', 'ETB'));
+    }
 }
 
 class TestableChapaGateway extends ChapaGateway
 {
+    public function getUsdToEtbRate(): float
+    {
+        return 130.0;
+    }
+
     public function normalize(string $mobile): string
     {
         return $this->normalizeMobile($mobile);

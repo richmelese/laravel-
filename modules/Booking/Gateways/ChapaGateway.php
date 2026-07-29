@@ -4,6 +4,7 @@ namespace Modules\Booking\Gateways;
 
 use Exception;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Modules\Booking\Events\BookingCreatedEvent;
@@ -63,8 +64,8 @@ class ChapaGateway extends BaseGateway
                 'type' => 'input',
                 'input_type' => 'number',
                 'id' => 'exchange_rate',
-                'label' => __('Exchange Rate (ETB per 1 USD)'),
-                'desc' => __('Required for the Alternate Currency above to be offered to customers. Always enter how many ETB equal 1 USD (e.g. 130) — this meaning is fixed and does NOT change depending on whether ETB or USD is your Main Currency. The system automatically multiplies or divides by this rate as needed.'),
+                'label' => __('Fallback Exchange Rate (ETB per 1 USD)'),
+                'desc' => __('Optional emergency fallback. The current rate is fetched automatically by swapping 1 USD to ETB through Chapa and cached for 24 hours. Each refresh performs a real, irreversible 1 USD swap.'),
             ],
             [
                 'type' => 'input',
@@ -133,7 +134,7 @@ class ChapaGateway extends BaseGateway
     {
         $main = $this->getMainCurrency();
         $alternate = strtoupper(trim((string) $this->getOption('currency')));
-        $exchangeRate = (float) $this->getOption('exchange_rate');
+        $canRetrieveRate = $this->getSecretKey() !== '' || (float) $this->getOption('exchange_rate') > 0;
 
         // Conversion (see convertAmount()) only understands the ETB/USD pair,
         // regardless of which of the two is configured as Main Currency — so
@@ -141,7 +142,7 @@ class ChapaGateway extends BaseGateway
         $isSupportedPair = in_array($main, ['ETB', 'USD'], true) && in_array($alternate, ['ETB', 'USD'], true);
 
         $currencies = [$main];
-        if ($alternate !== '' && $alternate !== $main && $exchangeRate > 0 && $isSupportedPair) {
+        if ($alternate !== '' && $alternate !== $main && $canRetrieveRate && $isSupportedPair) {
             $currencies[] = $alternate;
         }
 
@@ -169,10 +170,10 @@ class ChapaGateway extends BaseGateway
             throw new Exception(__("Chapa currency conversion only supports ETB and USD"));
         }
 
-        $etbPerUsd = (float) $this->getOption('exchange_rate');
+        $etbPerUsd = $this->getUsdToEtbRate();
         if ($etbPerUsd <= 0) {
             throw new Exception(__(
-                "Exchange rate from :from to :to must be configured on the Chapa gateway. Please contact site owner",
+                "Unable to retrieve the Chapa exchange rate from :from to :to. Please contact site owner",
                 ['from' => $fromCurrency, 'to' => $toCurrency]
             ));
         }
@@ -183,6 +184,73 @@ class ChapaGateway extends BaseGateway
 
         // ETB -> USD
         return $amount / $etbPerUsd;
+    }
+
+    /**
+     * Return Chapa's ETB value for 1 USD.
+     *
+     * POST /v1/swap performs a real, irreversible conversion. Cache the rate
+     * for 24 hours so checkout does not swap 1 USD on every request.
+     */
+    public function getUsdToEtbRate(): float
+    {
+        $fallbackRate = (float) $this->getOption('exchange_rate');
+        $secretKey = $this->getSecretKey();
+
+        if ($secretKey === '') {
+            if ($fallbackRate > 0) {
+                return $fallbackRate;
+            }
+
+            throw new Exception(__('Chapa secret key is required to retrieve the exchange rate.'));
+        }
+
+        $cacheKey = 'chapa_usd_etb_rate_' . md5($this->getBaseUrl() . '|' . $secretKey);
+
+        try {
+            return (float) Cache::remember($cacheKey, 86400, function () {
+                $response = Http::timeout($this->getTimeout())
+                    ->withOptions(['verify' => $this->getSslVerifyOption()])
+                    ->withHeaders([
+                        'Authorization' => 'Bearer ' . $this->getSecretKey(),
+                        'Content-Type' => 'application/json',
+                    ])
+                    ->post($this->getBaseUrl() . '/v1/swap', [
+                        'amount' => 1,
+                        'from' => 'USD',
+                        'to' => 'ETB',
+                    ]);
+
+                $body = (array) $response->json();
+                $rate = (float) (
+                    data_get($body, 'data.rate')
+                    ?: data_get($body, 'data.exchange_rate')
+                    ?: data_get($body, 'rate')
+                );
+
+                if (
+                    !$response->successful()
+                    || strtolower((string) data_get($body, 'status')) !== 'success'
+                    || $rate <= 0
+                ) {
+                    throw new Exception($this->normalizeGatewayMessage(
+                        data_get($body, 'message', __('Chapa did not return a valid USD to ETB rate.'))
+                    ));
+                }
+
+                return $rate;
+            });
+        } catch (\Throwable $e) {
+            Log::warning('Chapa swap rate request failed', ['error' => $e->getMessage()]);
+
+            if ($fallbackRate > 0) {
+                return $fallbackRate;
+            }
+
+            throw new Exception(__('Unable to retrieve the Chapa USD to ETB rate: :message', [
+                'message' => $e->getMessage(),
+            ]));
+        }
     }
 
     /**
@@ -601,7 +669,7 @@ class ChapaGateway extends BaseGateway
 
         $payment->addMeta('chapa_main_currency', $mainCurrency);
         $payment->addMeta('chapa_main_amount', $mainAmount);
-        $payment->addMeta('chapa_exchange_rate', (float) $this->getOption('exchange_rate'));
+        $payment->addMeta('chapa_exchange_rate', $this->getUsdToEtbRate());
         $payment->addMeta('chapa_converted_currency', $chargeCurrency);
         $payment->addMeta('chapa_converted_amount', $convertedAmount);
 

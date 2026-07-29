@@ -675,7 +675,7 @@ class BusBookingController extends Controller
             $conversion = [
                 'main_currency' => $mainCurrency,
                 'main_amount' => $amount,
-                'exchange_rate' => (float) $gateway->getOption('exchange_rate'),
+                'exchange_rate' => $gateway->getUsdToEtbRate(),
                 'converted_currency' => $currency,
                 'converted_amount' => $chargeAmount,
             ];
