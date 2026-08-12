@@ -9,12 +9,14 @@ Route::group(['prefix' => config('boat.boat_route_prefix', 'boat')], function ()
 
 Route::group(['prefix' => 'buses'], function () {
     Route::get('/', 'BusController@index')->name('api.buses.index');
+    Route::get('/{id}/seats', 'BusBookingController@busSeats')->name('api.buses.seats')->where('id', '[0-9]+');
     Route::get('/{id}/seat-availability', 'BusBookingController@busSeatAvailability')->name('api.buses.seat_availability')->where('id', '[0-9]+');
     Route::get('/{id}', 'BusController@show')->name('api.buses.show')->where('id', '[0-9]+');
 });
 
 Route::group(['prefix' => 'bus'], function () {
     Route::get('/', 'BusController@index')->name('api.bus.index');
+    Route::get('/{id}/seats', 'BusBookingController@busSeats')->name('api.bus.seats')->where('id', '[0-9]+');
     Route::get('/{id}/seat-availability', 'BusBookingController@busSeatAvailability')->name('api.bus.seat_availability')->where('id', '[0-9]+');
     Route::get('/{id}', 'BusController@show')->name('api.bus.show')->where('id', '[0-9]+');
 });
@@ -54,4 +56,8 @@ Route::group(['prefix' => 'bus-bookings'], function () {
 
     // Cancel redirect — the customer clicks "Cancel" on the Chapa hosted page.
     Route::get('/payment/cancel/chapa', 'BusBookingController@cancelChapaPayment')->name('api.bus_bookings.payment.cancel.chapa');
+
+    // Telebirr WebCheckout routes are intentionally scoped to bus bookings.
+    Route::get('/payment/confirm/telebirr', 'BusBookingController@confirmTelebirrPayment')->name('api.bus_bookings.payment.confirm.telebirr');
+    Route::post('/payment/webhook/telebirr', 'BusBookingController@webhookTelebirrPayment')->name('api.bus_bookings.payment.webhook.telebirr')->withoutMiddleware(['web', 'csrf']);
 });

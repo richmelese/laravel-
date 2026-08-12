@@ -4,6 +4,7 @@ namespace Tests\Unit;
 
 use Modules\Booking\Gateways\ChapaGateway;
 use Modules\Booking\Models\Payment;
+use Illuminate\Http\Request;
 use PHPUnit\Framework\TestCase;
 
 class ChapaGatewayTest extends TestCase
@@ -77,6 +78,14 @@ class ChapaGatewayTest extends TestCase
         $this->assertSame(1.0, $gateway->convertAmount(130, 'ETB', 'USD'));
         $this->assertSame(130.0, $gateway->convertAmount(1, 'USD', 'ETB'));
     }
+
+    public function test_missing_currency_defaults_to_the_booking_main_currency(): void
+    {
+        $gateway = new TestableChapaGateway('chapa');
+
+        $this->assertSame('ETB', $gateway->requestedCurrency(new Request()));
+        $this->assertSame('USD', $gateway->requestedCurrency(new Request(['chapa_currency' => 'USD'])));
+    }
 }
 
 class TestableChapaGateway extends ChapaGateway
@@ -109,6 +118,21 @@ class TestableChapaGateway extends ChapaGateway
     public function verified(array $response, Payment $payment, string $txRef): bool
     {
         return $this->isVerificationSuccess($response, $payment, $txRef);
+    }
+
+    public function requestedCurrency(Request $request): string
+    {
+        return $this->resolveRequestedCurrency($request);
+    }
+
+    public function getAvailableCurrencies(): array
+    {
+        return ['ETB', 'USD'];
+    }
+
+    protected function getMainCurrency(): string
+    {
+        return 'ETB';
     }
 
     protected function getCurrency(): string

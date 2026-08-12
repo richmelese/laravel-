@@ -8,9 +8,13 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Auth;
 use App\Http\Controllers\Controller;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
+use Modules\Api\Models\TelebirrAccount;
+use Modules\Booking\Services\TelebirrService;
 use Modules\User\Emails\ResetPasswordToken;
 use Modules\User\Events\SendMailUserRegistered;
 use Modules\User\Resources\UserResource;
@@ -29,7 +33,7 @@ class AuthController extends Controller
      */
     public function __construct()
     {
-        $this->middleware('auth:sanctum', ['except' => ['login','register','forgotPassword','resetPassword','socialCallback',"refreshToken"]]);
+        $this->middleware('auth:sanctum', ['except' => ['login','register','forgotPassword','resetPassword','socialCallback',"refreshToken",'telebirrMiniApp']]);
     }
 
     /**
@@ -58,6 +62,224 @@ class AuthController extends Controller
             'user'=> new UserResource($user),
             'status'=>1
         ];
+    }
+
+    public function telebirrMiniApp(Request $request, TelebirrService $telebirr)
+    {
+        if (! config('telebirr.miniapp_login_enabled')) {
+            return response()->json([
+                'message' => __('Telebirr Mini App login is disabled.'),
+                'status' => 0,
+            ], 503);
+        }
+
+        $validated = $request->validate([
+            'access_token' => ['required', 'string', 'max:4096', 'regex:/^[^\s\x00-\x1F\x7F]+$/'],
+            'device_name' => ['nullable', 'string', 'max:100'],
+        ]);
+
+        try {
+            $telebirrResponse = $telebirr->authenticateMiniAppToken($validated['access_token']);
+        } catch (Throwable $exception) {
+            Log::warning('Telebirr Mini App authentication failed', [
+                'error' => $exception->getMessage(),
+            ]);
+
+            return response()->json([
+                'message' => __('Unable to authenticate with Telebirr.'),
+                'status' => 0,
+                'code' => 'telebirr_auth_failed',
+            ], 401);
+        }
+
+        $profile = data_get($telebirrResponse, 'biz_content', []);
+        if (is_string($profile)) {
+            $profile = json_decode($profile, true);
+        }
+        $profile = is_array($profile) ? $profile : [];
+        $openId = trim((string) (
+            $profile['open_id']
+            ?? $profile['openId']
+            ?? ''
+        ));
+
+        if ($openId === '' || strlen($openId) > 191) {
+            Log::error('Telebirr Mini App response did not contain a valid open_id.');
+
+            return response()->json([
+                'message' => __('Telebirr did not return a valid customer identity.'),
+                'status' => 0,
+                'code' => 'telebirr_identity_missing',
+            ], 502);
+        }
+
+        $phone = $this->telebirrPhone($profile['identifier'] ?? null);
+        if ($phone === null) {
+            Log::error('Telebirr Mini App response did not contain a valid customer phone number.', [
+                'open_id_hash' => hash('sha256', $openId),
+            ]);
+
+            return response()->json([
+                'message' => __('Telebirr did not return a valid customer phone number.'),
+                'status' => 0,
+                'code' => 'telebirr_phone_missing',
+            ], 502);
+        }
+
+        $identityType = strtoupper(trim((string) (
+            $profile['identityType']
+            ?? $profile['identity_type']
+            ?? ''
+        )));
+        if ($identityType !== '' && $identityType !== 'CUSTOMER') {
+            return response()->json([
+                'message' => __('The Telebirr identity is not a customer account.'),
+                'status' => 0,
+                'code' => 'telebirr_identity_not_customer',
+            ], 403);
+        }
+
+        $telebirrStatus = strtoupper(trim((string) ($profile['status'] ?? '')));
+        if (in_array($telebirrStatus, ['BLOCKED', 'SUSPENDED', 'INACTIVE', 'CLOSED', 'DISABLED'], true)) {
+            return response()->json([
+                'message' => __('The Telebirr account is not active.'),
+                'status' => 0,
+                'code' => 'telebirr_account_inactive',
+            ], 403);
+        }
+
+        try {
+            [$user, $account] = DB::transaction(function () use ($openId, $phone, $profile, $identityType, $telebirrStatus) {
+                $account = TelebirrAccount::query()
+                    ->where('open_id', $openId)
+                    ->lockForUpdate()
+                    ->first();
+
+                if ($account) {
+                    $user = User::withTrashed()->find($account->user_id);
+                    if (! $user || $user->trashed() || $user->status !== 'publish') {
+                        throw new \RuntimeException(__('Your local account is blocked or unavailable.'));
+                    }
+                } else {
+                    $internalEmail = 'telebirr_'.hash('sha256', $openId).'@users.invalid';
+                    $user = User::withTrashed()->where('email', $internalEmail)->first();
+
+                    if ($user && ($user->trashed() || $user->status !== 'publish')) {
+                        throw new \RuntimeException(__('Your local account is blocked or unavailable.'));
+                    }
+
+                    if (! $user) {
+                        [$firstName, $lastName] = $this->telebirrNames(
+                            (string) ($profile['nickName'] ?? $profile['nickname'] ?? '')
+                        );
+
+                        $user = User::create([
+                            'first_name' => $firstName,
+                            'last_name' => $lastName,
+                            'email' => $internalEmail,
+                            'password' => Hash::make(Str::random(64)),
+                            'phone' => $phone,
+                            'status' => 'publish',
+                        ]);
+                        $user->assignRole('customer');
+                    }
+
+                    $account = new TelebirrAccount([
+                        'open_id' => $openId,
+                        'user_id' => $user->id,
+                    ]);
+                }
+
+                $account->fill([
+                    'identity_id' => $profile['identityId'] ?? $profile['identity_id'] ?? null,
+                    'identity_type' => $identityType ?: null,
+                    'wallet_identity_id' => $profile['walletIdentityId'] ?? $profile['wallet_identity_id'] ?? null,
+                    'identifier' => $phone,
+                    'nickname' => $profile['nickName'] ?? $profile['nickname'] ?? null,
+                    'status' => $telebirrStatus ?: null,
+                    'profile' => $profile,
+                    'last_login_at' => now(),
+                ]);
+                $account->user_id = $user->id;
+                $account->save();
+
+                $user->last_login_at = now();
+                $user->phone = $phone;
+                $user->save();
+
+                return [$user->fresh(), $account->fresh()];
+            }, 3);
+        } catch (Throwable $exception) {
+            Log::error('Unable to provision the Telebirr Mini App user', [
+                'open_id_hash' => hash('sha256', $openId),
+                'error' => $exception->getMessage(),
+            ]);
+
+            $localAccountUnavailable = $exception instanceof \RuntimeException
+                && $exception->getMessage() === __('Your local account is blocked or unavailable.');
+
+            return response()->json([
+                'message' => $localAccountUnavailable
+                    ? __('Your local account is blocked or unavailable.')
+                    : __('Unable to create or access the local account.'),
+                'status' => 0,
+                'code' => $localAccountUnavailable
+                    ? 'local_account_unavailable'
+                    : 'telebirr_user_provisioning_failed',
+            ], $localAccountUnavailable ? 403 : 500);
+        }
+
+        $deviceName = trim((string) ($validated['device_name'] ?? 'default'));
+        $tokenName = 'telebirr-miniapp:'.($deviceName ?: 'default');
+        $user->tokens()->where('name', $tokenName)->delete();
+        $token = $user->createToken($tokenName)->plainTextToken;
+
+        return response()->json([
+            'access_token' => $token,
+            'token_type' => 'Bearer',
+            'user' => new UserResource($user),
+            'telebirr' => [
+                'open_id' => $account->open_id,
+                'phone' => $account->identifier,
+                'identity_type' => $account->identity_type,
+                'nickname' => $account->nickname,
+                'status' => $account->status,
+            ],
+            'status' => 1,
+        ]);
+    }
+
+    private function telebirrNames(string $nickname): array
+    {
+        $nickname = trim(preg_replace('/\s+/u', ' ', $nickname) ?? '');
+        if ($nickname === '') {
+            return ['Telebirr', 'Customer'];
+        }
+
+        $parts = preg_split('/\s+/u', $nickname, 2);
+
+        return [
+            mb_substr((string) ($parts[0] ?? 'Telebirr'), 0, 255),
+            mb_substr((string) ($parts[1] ?? ''), 0, 255),
+        ];
+    }
+
+    private function telebirrPhone($identifier): ?string
+    {
+        $phone = preg_replace('/[\s\-()]/', '', trim((string) $identifier));
+        if (! is_string($phone) || $phone === '') {
+            return null;
+        }
+
+        if (preg_match('/^09\d{8}$/', $phone)) {
+            return '+251'.substr($phone, 1);
+        }
+
+        if (preg_match('/^2519\d{8}$/', $phone)) {
+            return '+'.$phone;
+        }
+
+        return preg_match('/^\+2519\d{8}$/', $phone) ? $phone : null;
     }
 
     public function register(Request $request)

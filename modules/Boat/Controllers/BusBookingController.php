@@ -3,6 +3,7 @@
 namespace Modules\Boat\Controllers;
 
 use BC\QrCode\Facades\QrCode;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\DB;
@@ -14,6 +15,7 @@ use Modules\Boat\Models\BusBooking;
 use Modules\Boat\Models\BusPayment;
 use Modules\Boat\Models\BusRoute;
 use Modules\Boat\Models\BusSchedule;
+use Modules\Booking\Services\TelebirrService;
 
 class BusBookingController extends Controller
 {
@@ -33,10 +35,10 @@ class BusBookingController extends Controller
             ->where('status', 'active')
             ->orderBy('from_location');
         if ($from = $request->query('from_location')) {
-            $query->where('from_location', 'like', '%' . $from . '%');
+            $query->where('from_location', 'like', '%'.$from.'%');
         }
         if ($to = $request->query('to_location')) {
-            $query->where('to_location', 'like', '%' . $to . '%');
+            $query->where('to_location', 'like', '%'.$to.'%');
         }
 
         return response()->json(['data' => $query->paginate($this->resolvePerPage($request))]);
@@ -45,7 +47,7 @@ class BusBookingController extends Controller
     public function searchSchedules(Request $request)
     {
         // Accept both passengers and Passengers from clients.
-        if ($request->filled('Passengers') && !$request->filled('passengers')) {
+        if ($request->filled('Passengers') && ! $request->filled('passengers')) {
             $request->merge(['passengers' => $request->input('Passengers')]);
         }
 
@@ -72,8 +74,8 @@ class BusBookingController extends Controller
             ->where('status', 'scheduled')
             ->whereDate('departure_time', $request->input('date'))
             ->whereHas('route', function ($q) use ($request) {
-                $q->where('from_location', 'like', '%' . $request->input('from_location') . '%')
-                    ->where('to_location', 'like', '%' . $request->input('to_location') . '%')
+                $q->where('from_location', 'like', '%'.$request->input('from_location').'%')
+                    ->where('to_location', 'like', '%'.$request->input('to_location').'%')
                     ->where('status', 'active');
             })
             ->whereRaw('(COALESCE(bc_buses.seat_capacity, 0) - COALESCE(booked.booked_count, 0)) >= ?', [$passengers])
@@ -88,6 +90,7 @@ class BusBookingController extends Controller
             $item['booked_seats'] = (int) ($item['booked_seats'] ?? 0);
             $item['available_seats'] = (int) ($item['available_seats'] ?? 0);
             $item['passengers_requested'] = $passengers;
+
             return $item;
         });
 
@@ -97,7 +100,26 @@ class BusBookingController extends Controller
     public function scheduleSeats($id)
     {
         $schedule = BusSchedule::query()->with('bus')->find($id);
-        if (!$schedule || !$schedule->bus) {
+        if (! $schedule) {
+            $busSchedules = BusSchedule::query()
+                ->with('bus')
+                ->where('bus_id', (int) $id)
+                ->where('status', 'scheduled')
+                ->orderBy('departure_time')
+                ->get();
+
+            if ($busSchedules->count() === 1) {
+                $schedule = $busSchedules->first();
+            } elseif ($busSchedules->count() > 1) {
+                return response()->json([
+                    'message' => 'This is a bus ID with multiple schedules. Select a schedule ID.',
+                    'bus_id' => (int) $id,
+                    'schedule_ids' => $busSchedules->pluck('id')->map(fn ($value) => (int) $value)->values(),
+                ], 409);
+            }
+        }
+
+        if (! $schedule || ! $schedule->bus) {
             return response()->json(['message' => 'Schedule not found'], 404);
         }
 
@@ -117,7 +139,7 @@ class BusBookingController extends Controller
         for ($i = 1; $i <= $capacity; $i++) {
             $allSeats[] = [
                 'seat_number' => $i,
-                'available' => !$booked->contains($i),
+                'available' => ! $booked->contains($i),
             ];
         }
 
@@ -130,6 +152,44 @@ class BusBookingController extends Controller
                 'seats' => $allSeats,
             ],
         ]);
+    }
+
+    public function busSeats(Request $request, $busId)
+    {
+        $request->validate([
+            'schedule_id' => 'nullable|integer|min:1',
+            'date' => 'nullable|date_format:Y-m-d',
+        ]);
+
+        $query = BusSchedule::query()
+            ->where('bus_id', (int) $busId)
+            ->where('status', 'scheduled')
+            ->orderBy('departure_time');
+
+        if ($request->filled('schedule_id')) {
+            $query->whereKey($request->integer('schedule_id'));
+        }
+        if ($request->filled('date')) {
+            $query->whereDate('departure_time', $request->input('date'));
+        }
+
+        $schedules = $query->get(['id']);
+        if ($schedules->isEmpty()) {
+            return response()->json([
+                'message' => 'No schedule found for this bus.',
+                'bus_id' => (int) $busId,
+            ], 404);
+        }
+
+        if ($schedules->count() > 1 && ! $request->filled('schedule_id')) {
+            return response()->json([
+                'message' => 'This bus has multiple schedules. Provide schedule_id.',
+                'bus_id' => (int) $busId,
+                'schedule_ids' => $schedules->pluck('id')->map(fn ($value) => (int) $value)->values(),
+            ], 409);
+        }
+
+        return $this->scheduleSeats((int) $schedules->first()->id);
     }
 
     public function busSeatAvailability(Request $request, $busId)
@@ -177,7 +237,7 @@ class BusBookingController extends Controller
             for ($i = 1; $i <= $capacity; $i++) {
                 $seatMap[] = [
                     'seat_number' => $i,
-                    'available' => !$bookedSeats->contains($i),
+                    'available' => ! $bookedSeats->contains($i),
                     'state' => $bookedSeats->contains($i) ? 'taken' : 'available',
                 ];
             }
@@ -218,13 +278,13 @@ class BusBookingController extends Controller
         ]);
 
         $user = auth('sanctum')->user();
-        if (!$user) {
+        if (! $user) {
             return response()->json(['message' => 'Unauthenticated'], 401);
         }
 
         $result = DB::transaction(function () use ($id, $request, $user) {
             $schedule = BusSchedule::query()->with('bus')->lockForUpdate()->find((int) $id);
-            if (!$schedule || !$schedule->bus) {
+            if (! $schedule || ! $schedule->bus) {
                 return response()->json(['message' => 'Schedule not found'], 404);
             }
 
@@ -257,7 +317,7 @@ class BusBookingController extends Controller
                 if ($userBooking->seat_number !== $seatNumber) {
                     $userBooking->seat_number = $seatNumber;
                 }
-                if (!$userBooking->payment_status) {
+                if (! $userBooking->payment_status) {
                     $userBooking->payment_status = 'unpaid';
                 }
                 $userBooking->status = $userBooking->status ?: 'pending';
@@ -327,7 +387,7 @@ class BusBookingController extends Controller
         ]);
 
         $user = auth('sanctum')->user();
-        if (!$user) {
+        if (! $user) {
             return response()->json(['message' => 'Unauthenticated'], 401);
         }
 
@@ -336,13 +396,45 @@ class BusBookingController extends Controller
             : [$request->integer('seat_number')];
 
         $result = DB::transaction(function () use ($request, $user, $seatNumbers) {
-            $schedule = BusSchedule::query()->with('bus')->lockForUpdate()->find($request->integer('schedule_id'));
-            if (!$schedule || !$schedule->bus) {
-                return response()->json(['message' => 'Schedule not found'], 404);
+            $requestedScheduleId = $request->integer('schedule_id');
+            $schedule = BusSchedule::query()
+                ->with('bus')
+                ->lockForUpdate()
+                ->find($requestedScheduleId);
+
+            if (! $schedule) {
+                $busScheduleQuery = BusSchedule::query()
+                    ->with('bus')
+                    ->where('bus_id', $requestedScheduleId)
+                    ->where('status', 'scheduled')
+                    ->orderBy('departure_time')
+                    ->lockForUpdate();
+
+                if ($request->filled('departure_date')) {
+                    $busScheduleQuery->whereDate('departure_time', $request->input('departure_date'));
+                }
+
+                $busSchedules = $busScheduleQuery->get();
+                if ($busSchedules->count() === 1) {
+                    $schedule = $busSchedules->first();
+                } elseif ($busSchedules->count() > 1) {
+                    return response()->json([
+                        'message' => 'This is a bus ID with multiple schedules. Use one of the returned schedule IDs.',
+                        'bus_id' => $requestedScheduleId,
+                        'schedule_ids' => $busSchedules->pluck('id')->map(fn ($value) => (int) $value)->values(),
+                    ], 409);
+                }
+            }
+
+            if (! $schedule || ! $schedule->bus) {
+                return response()->json([
+                    'message' => 'Schedule not found',
+                    'requested_schedule_or_bus_id' => $requestedScheduleId,
+                ], 404);
             }
 
             $overCapacity = array_filter($seatNumbers, fn ($seat) => $seat > (int) $schedule->bus->seat_capacity);
-            if (!empty($overCapacity)) {
+            if (! empty($overCapacity)) {
                 return response()->json(['message' => 'Seat number exceeds bus capacity'], 422);
             }
 
@@ -384,7 +476,7 @@ class BusBookingController extends Controller
             return $bookings;
         });
 
-        if ($result instanceof \Illuminate\Http\JsonResponse) {
+        if ($result instanceof JsonResponse) {
             return $result;
         }
 
@@ -401,7 +493,7 @@ class BusBookingController extends Controller
     public function bookingDetail($id)
     {
         $user = auth('sanctum')->user();
-        if (!$user) {
+        if (! $user) {
             return response()->json(['message' => 'Unauthenticated'], 401);
         }
         $booking = BusBooking::query()
@@ -409,7 +501,7 @@ class BusBookingController extends Controller
             ->where('id', $id)
             ->where('user_id', $user->id)
             ->first();
-        if (!$booking) {
+        if (! $booking) {
             return response()->json(['message' => 'Booking not found'], 404);
         }
 
@@ -434,7 +526,7 @@ class BusBookingController extends Controller
             ->where('ticket_code', $ticketCode)
             ->first();
 
-        if (!$booking) {
+        if (! $booking) {
             return response()->json(['message' => 'Ticket not found'], 404);
         }
 
@@ -454,7 +546,7 @@ class BusBookingController extends Controller
     public function qrCodeByCode(Request $request, $ticketCode)
     {
         $booking = BusBooking::query()->where('ticket_code', $ticketCode)->first();
-        if (!$booking) {
+        if (! $booking) {
             return response()->json(['message' => 'Ticket not found'], 404);
         }
 
@@ -522,7 +614,7 @@ class BusBookingController extends Controller
             ->where('ticket_code', $ticketCode)
             ->first();
 
-        if (!$booking) {
+        if (! $booking) {
             return $this->verifyResponse($request, false, [
                 'ticket_id' => $ticketCode,
             ], 404);
@@ -575,12 +667,12 @@ class BusBookingController extends Controller
         ]);
 
         $user = auth('sanctum')->user();
-        if (!$user) {
+        if (! $user) {
             return response()->json(['message' => 'Unauthenticated'], 401);
         }
 
         $booking = BusBooking::query()->with(['schedule'])->where('id', $id)->where('user_id', $user->id)->first();
-        if (!$booking) {
+        if (! $booking) {
             return response()->json(['message' => 'Booking not found'], 404);
         }
         if ($booking->payment_status === 'paid') {
@@ -589,6 +681,10 @@ class BusBookingController extends Controller
 
         if (strtolower($request->input('payment_method')) === 'chapa') {
             return $this->initiateChapaPayment($booking, $request);
+        }
+
+        if (strtolower($request->input('payment_method')) === 'telebirr') {
+            return $this->initiateTelebirrPayment($booking);
         }
 
         $amount = (float) ($booking->schedule->price ?? 0);
@@ -604,7 +700,7 @@ class BusBookingController extends Controller
 
         $booking->payment_status = 'paid';
         $booking->status = 'confirmed';
-        $booking->ticket_code = $booking->ticket_code ?: 'BUS-' . strtoupper(Str::random(10));
+        $booking->ticket_code = $booking->ticket_code ?: 'BUS-'.strtoupper(Str::random(10));
         $booking->save();
 
         return response()->json([
@@ -617,6 +713,322 @@ class BusBookingController extends Controller
     }
 
     // =========================================================================
+    // TELEBIRR WEBCHECKOUT (BUS BOOKINGS ONLY)
+    // =========================================================================
+
+    protected function initiateTelebirrPayment(BusBooking $booking)
+    {
+        if (! config('telebirr.enabled')) {
+            return response()->json([
+                'message' => __('Telebirr is not enabled. Please contact support.'),
+            ], 503);
+        }
+
+        $payableBookings = $this->telebirrPayableBookings($booking);
+        if ($payableBookings->isEmpty()) {
+            return response()->json([
+                'message' => __('This booking has already been paid or is no longer payable.'),
+            ], 409);
+        }
+
+        $bookingIds = $payableBookings->pluck('id')->map(fn ($id) => (int) $id)->values()->all();
+        $unitPrice = (float) ($booking->schedule->price ?? 0);
+        $amount = $unitPrice * count($bookingIds);
+        if ($amount <= 0) {
+            return response()->json(['message' => __('Booking amount is invalid.')], 422);
+        }
+
+        if (strtoupper((string) setting_item('currency_main', 'ETB')) !== 'ETB') {
+            return response()->json([
+                'message' => __('Telebirr requires the site main currency to be ETB.'),
+            ], 422);
+        }
+
+        $existingPayment = BusPayment::query()
+            ->whereIn('booking_id', $bookingIds)
+            ->where('payment_method', 'telebirr')
+            ->where('status', 'pending')
+            ->latest('id')
+            ->first();
+        if ($existingPayment) {
+            $prepayId = (string) data_get($existingPayment->payload, 'prepay_id');
+            if ($prepayId === '') {
+                return response()->json([
+                    'message' => __('Telebirr payment initialization is already in progress.'),
+                    'order_id' => $existingPayment->provider_reference,
+                ], 409);
+            }
+
+            return response()->json([
+                'message' => __('Continue the existing Telebirr checkout.'),
+                'payment_type' => 'redirect',
+                'payment_url' => app(TelebirrService::class)->checkoutUrl($prepayId),
+                'order_id' => $existingPayment->provider_reference,
+                'amount' => number_format((float) $existingPayment->amount, 2, '.', ''),
+                'currency' => 'ETB',
+                'data' => [
+                    'booking_ids' => data_get($existingPayment->payload, 'booking_ids', $bookingIds),
+                    'payment' => $existingPayment,
+                ],
+            ]);
+        }
+
+        $payment = BusPayment::query()->create([
+            'booking_id' => $booking->id,
+            'amount' => $amount,
+            'status' => 'pending',
+            'payment_method' => 'telebirr',
+            'payload' => ['booking_ids' => $bookingIds],
+        ]);
+
+        $merchantOrderId = 'B'.$booking->id.'P'.$payment->id.'T'.time();
+        $notifyUrl = route('api.bus_bookings.payment.webhook.telebirr');
+        $redirectUrl = route('api.bus_bookings.payment.confirm.telebirr', [
+            'order_id' => $merchantOrderId,
+        ]);
+
+        try {
+            $result = app(TelebirrService::class)->createOrder(
+                $merchantOrderId,
+                'Bus Booking '.$booking->id,
+                number_format($amount, 2, '.', ''),
+                $notifyUrl,
+                $redirectUrl
+            );
+            $prepayId = (string) data_get($result, 'biz_content.prepay_id');
+
+            if ($prepayId === '') {
+                throw new \RuntimeException(
+                    (string) ($result['msg'] ?? __('Telebirr did not return a prepay ID.'))
+                );
+            }
+
+            $checkoutUrl = app(TelebirrService::class)->checkoutUrl($prepayId);
+        } catch (\Throwable $exception) {
+            $payment->status = 'fail';
+            $payment->payload = array_merge((array) $payment->payload, [
+                'error' => $exception->getMessage(),
+            ]);
+            $payment->save();
+
+            Log::error('Telebirr bus booking initialization failed', [
+                'booking_id' => $booking->id,
+                'payment_id' => $payment->id,
+                'error' => $exception->getMessage(),
+            ]);
+
+            return response()->json(['message' => $exception->getMessage()], 502);
+        }
+
+        $payment->provider_reference = $merchantOrderId;
+        $payment->payload = array_merge((array) $payment->payload, [
+            'prepay_id' => $prepayId,
+            'create_response' => $result,
+        ]);
+        $payment->save();
+
+        return response()->json([
+            'message' => __('Redirect the customer to payment_url to complete payment.'),
+            'payment_type' => 'redirect',
+            'payment_url' => $checkoutUrl,
+            'order_id' => $merchantOrderId,
+            'amount' => number_format($amount, 2, '.', ''),
+            'currency' => 'ETB',
+            'data' => [
+                'booking' => $booking,
+                'booking_ids' => $bookingIds,
+                'payment' => $payment,
+            ],
+        ]);
+    }
+
+    public function confirmTelebirrPayment(Request $request)
+    {
+        $merchantOrderId = trim((string) $request->query('order_id'));
+        if ($merchantOrderId === '') {
+            return $this->paymentStatusResponse($request, 422, __('Missing payment reference.'));
+        }
+
+        $payment = BusPayment::query()
+            ->where('payment_method', 'telebirr')
+            ->where('provider_reference', $merchantOrderId)
+            ->first();
+        if (! $payment) {
+            return $this->paymentStatusResponse($request, 404, __('Payment not found.'));
+        }
+
+        try {
+            $result = $this->verifyTelebirrPayment($payment);
+        } catch (\Throwable $exception) {
+            Log::warning('Telebirr bus redirect verification failed', [
+                'payment_id' => $payment->id,
+                'error' => $exception->getMessage(),
+            ]);
+
+            return $this->paymentStatusResponse($request, 400, $exception->getMessage());
+        }
+
+        $booking = BusBooking::query()
+            ->with(['schedule.bus', 'schedule.route'])
+            ->find($payment->booking_id);
+        if (! $booking) {
+            return $this->paymentStatusResponse($request, 404, __('Booking not found.'));
+        }
+
+        if ($this->telebirrTradeStatus($result) === 'PAY_SUCCESS') {
+            return $this->ticketResponse(
+                $request,
+                $booking,
+                __('Payment confirmed. Thank you!')
+            );
+        }
+
+        return $this->paymentStatusResponse(
+            $request,
+            202,
+            __('Your Telebirr payment is pending or was not completed.')
+        );
+    }
+
+    public function webhookTelebirrPayment(Request $request)
+    {
+        $bizContent = $request->input('biz_content');
+        if (is_string($bizContent)) {
+            $bizContent = json_decode($bizContent, true);
+        }
+
+        $merchantOrderId = trim((string) (
+            data_get($bizContent, 'merch_order_id')
+            ?: $request->input('merch_order_id')
+        ));
+        if ($merchantOrderId === '') {
+            Log::warning('Telebirr bus webhook missing merchant order ID.');
+
+            return response()->json(['result' => 'FAIL', 'msg' => 'Missing merchant order ID'], 400);
+        }
+
+        $payment = BusPayment::query()
+            ->where('payment_method', 'telebirr')
+            ->where('provider_reference', $merchantOrderId)
+            ->first();
+        if (! $payment) {
+            Log::warning('Telebirr bus webhook payment not found', [
+                'merchant_order_id' => $merchantOrderId,
+            ]);
+
+            return response()->json(['result' => 'FAIL', 'msg' => 'Payment not found'], 404);
+        }
+
+        try {
+            $result = $this->verifyTelebirrPayment($payment);
+        } catch (\Throwable $exception) {
+            Log::error('Telebirr bus webhook verification failed', [
+                'payment_id' => $payment->id,
+                'error' => $exception->getMessage(),
+            ]);
+
+            return response()->json(['result' => 'FAIL', 'msg' => $exception->getMessage()], 400);
+        }
+
+        return response()->json([
+            'result' => 'SUCCESS',
+            'trade_status' => $this->telebirrTradeStatus($result),
+        ]);
+    }
+
+    private function verifyTelebirrPayment(BusPayment $payment): array
+    {
+        $merchantOrderId = (string) $payment->provider_reference;
+        $result = app(TelebirrService::class)->queryOrder($merchantOrderId);
+        $status = $this->telebirrTradeStatus($result);
+
+        if ($status === 'PAY_SUCCESS') {
+            $currency = strtoupper((string) data_get($result, 'biz_content.trans_currency'));
+            $paidAmount = number_format((float) data_get($result, 'biz_content.total_amount'), 2, '.', '');
+            $expectedAmount = number_format((float) $payment->amount, 2, '.', '');
+
+            if ($currency !== 'ETB' || $paidAmount !== $expectedAmount) {
+                throw new \RuntimeException(
+                    __('Telebirr returned a payment amount or currency mismatch.')
+                );
+            }
+        }
+
+        DB::transaction(function () use ($payment, $result, $status): void {
+            $lockedPayment = BusPayment::query()->lockForUpdate()->find($payment->id);
+            if (! $lockedPayment) {
+                throw new \RuntimeException(__('Payment not found.'));
+            }
+
+            $bookingIds = array_values(array_unique(array_filter(
+                array_map('intval', (array) data_get($lockedPayment->payload, 'booking_ids', []))
+            )));
+            if (empty($bookingIds)) {
+                $bookingIds = [(int) $lockedPayment->booking_id];
+            }
+
+            $bookings = BusBooking::query()
+                ->whereIn('id', $bookingIds)
+                ->lockForUpdate()
+                ->get();
+            if ($bookings->isEmpty() || $bookings->count() !== count($bookingIds)) {
+                throw new \RuntimeException(__('Booking not found.'));
+            }
+
+            $payload = (array) $lockedPayment->payload;
+            $payload['query_response'] = $result;
+            $lockedPayment->payload = $payload;
+
+            if ($status === 'PAY_SUCCESS') {
+                if ($lockedPayment->status !== 'success') {
+                    $lockedPayment->status = 'success';
+                    $lockedPayment->paid_at = now();
+                    $lockedPayment->save();
+
+                    foreach ($bookings as $booking) {
+                        $booking->payment_status = 'paid';
+                        $booking->status = 'confirmed';
+                        $booking->ticket_code = $booking->ticket_code ?: 'BUS-'.strtoupper(Str::random(10));
+                        $booking->save();
+                    }
+                }
+            } elseif (in_array($status, ['PAY_FAILED', 'ORDER_CLOSED'], true)) {
+                $lockedPayment->status = 'fail';
+                $lockedPayment->save();
+            } else {
+                $lockedPayment->save();
+            }
+        });
+
+        return $result;
+    }
+
+    private function telebirrPayableBookings(BusBooking $booking)
+    {
+        $query = BusBooking::query()
+            ->where('user_id', $booking->user_id)
+            ->where('schedule_id', $booking->schedule_id)
+            ->where('payment_status', '!=', 'paid')
+            ->where('status', 'pending');
+
+        if (! empty($booking->booking_group)) {
+            $query->where('booking_group', $booking->booking_group);
+        } else {
+            $query->whereKey($booking->id);
+        }
+
+        return $query->orderBy('id')->get();
+    }
+
+    private function telebirrTradeStatus(array $result): string
+    {
+        return strtoupper((string) (
+            data_get($result, 'biz_content.trade_status')
+            ?: data_get($result, 'biz_content.order_status')
+        ));
+    }
+
+    // =========================================================================
     // CHAPA
     // =========================================================================
 
@@ -624,7 +1036,7 @@ class BusBookingController extends Controller
     {
         $gateway = $this->findGateway('chapa');
         $secretKey = $gateway ? trim((string) $gateway->getOption('secret_key')) : '';
-        if (!$gateway || empty($secretKey)) {
+        if (! $gateway || empty($secretKey)) {
             return response()->json(['message' => __('Chapa is not configured. Please contact support.')], 500);
         }
 
@@ -655,7 +1067,7 @@ class BusBookingController extends Controller
             $currency = $requestedCurrency;
         }
 
-        $txRef = 'BUS-' . $booking->id . '-' . $payment->id . '-' . time();
+        $txRef = 'BUS-'.$booking->id.'-'.$payment->id.'-'.time();
 
         $conversion = null;
         $chargeAmount = $amount;
@@ -690,10 +1102,10 @@ class BusBookingController extends Controller
             'phone_number' => $booking->phone ?? '',
             'tx_ref' => $txRef,
             'callback_url' => url('/api/bus-bookings/payment/webhook/chapa'),
-            'return_url' => url('/api/bus-bookings/payment/confirm/chapa') . '?tx_ref=' . $txRef,
+            'return_url' => url('/api/bus-bookings/payment/confirm/chapa').'?tx_ref='.$txRef,
             'customization' => [
                 'title' => 'Bus Booking',
-                'description' => mb_substr(preg_replace('/[^A-Za-z0-9\-_. ]+/', '', 'Bus Booking ' . $booking->id), 0, 50),
+                'description' => mb_substr(preg_replace('/[^A-Za-z0-9\-_. ]+/', '', 'Bus Booking '.$booking->id), 0, 50),
             ],
             'meta' => [
                 'booking_id' => (string) $booking->id,
@@ -704,15 +1116,15 @@ class BusBookingController extends Controller
         $response = Http::timeout((int) max(5, (int) $gateway->getOption('timeout', 30)))
             ->withOptions(['verify' => $this->chapaSslVerifyOption()])
             ->withHeaders([
-                'Authorization' => 'Bearer ' . $secretKey,
+                'Authorization' => 'Bearer '.$secretKey,
                 'Content-Type' => 'application/json',
             ])
-            ->post($this->chapaBaseUrl($gateway) . '/v1/transaction/initialize', $payload);
+            ->post($this->chapaBaseUrl($gateway).'/v1/transaction/initialize', $payload);
 
         $json = $response->json();
         $checkoutUrl = data_get($json, 'data.checkout_url');
 
-        if (!$response->successful() || empty($checkoutUrl)) {
+        if (! $response->successful() || empty($checkoutUrl)) {
             $payment->status = 'fail';
             $payment->payload = $conversion ? ['response' => $json, 'conversion' => $conversion] : $json;
             $payment->save();
@@ -756,12 +1168,12 @@ class BusBookingController extends Controller
         }
 
         $payment = BusPayment::query()->where('provider_reference', $txRef)->first();
-        if (!$payment) {
+        if (! $payment) {
             return $this->paymentStatusResponse($request, 404, __('Payment not found'));
         }
 
         $booking = BusBooking::query()->with(['schedule.bus', 'schedule.route'])->find($payment->booking_id);
-        if (!$booking) {
+        if (! $booking) {
             return $this->paymentStatusResponse($request, 404, __('Booking not found'));
         }
 
@@ -782,7 +1194,7 @@ class BusBookingController extends Controller
 
             $booking->payment_status = 'paid';
             $booking->status = 'confirmed';
-            $booking->ticket_code = $booking->ticket_code ?: 'BUS-' . strtoupper(Str::random(10));
+            $booking->ticket_code = $booking->ticket_code ?: 'BUS-'.strtoupper(Str::random(10));
             $booking->save();
 
             return $this->ticketResponse(
@@ -848,17 +1260,19 @@ class BusBookingController extends Controller
 
         if (empty($txRef)) {
             Log::warning('Chapa bus webhook missing tx_ref', $request->all());
+
             return response()->json(['status' => 'error', 'message' => 'tx_ref missing'], 400);
         }
 
         $payment = BusPayment::query()->where('provider_reference', $txRef)->first();
-        if (!$payment) {
+        if (! $payment) {
             Log::warning('Chapa bus webhook: payment not found', ['tx_ref' => $txRef]);
+
             return response()->json(['status' => 'error', 'message' => 'Payment not found'], 404);
         }
 
         $booking = BusBooking::query()->find($payment->booking_id);
-        if (!$booking) {
+        if (! $booking) {
             return response()->json(['status' => 'error', 'message' => 'Booking not found'], 404);
         }
 
@@ -879,7 +1293,7 @@ class BusBookingController extends Controller
 
             $booking->payment_status = 'paid';
             $booking->status = 'confirmed';
-            $booking->ticket_code = $booking->ticket_code ?: 'BUS-' . strtoupper(Str::random(10));
+            $booking->ticket_code = $booking->ticket_code ?: 'BUS-'.strtoupper(Str::random(10));
             $booking->save();
 
             return response()->json(['status' => 'success', 'message' => 'Payment processed']);
@@ -913,6 +1327,7 @@ class BusBookingController extends Controller
                 return $gw;
             }
         }
+
         return null;
     }
 
@@ -923,14 +1338,15 @@ class BusBookingController extends Controller
             $response = Http::timeout((int) max(5, (int) $gateway->getOption('timeout', 30)))
                 ->withOptions(['verify' => $this->chapaSslVerifyOption()])
                 ->withHeaders([
-                    'Authorization' => 'Bearer ' . $secretKey,
+                    'Authorization' => 'Bearer '.$secretKey,
                     'Content-Type' => 'application/json',
                 ])
-                ->get($this->chapaBaseUrl($gateway) . '/v1/transaction/verify/' . urlencode($txRef));
+                ->get($this->chapaBaseUrl($gateway).'/v1/transaction/verify/'.urlencode($txRef));
 
             return (array) $response->json();
         } catch (\Throwable $e) {
             Log::warning('Chapa bus verify failed', ['tx_ref' => $txRef, 'error' => $e->getMessage()]);
+
             return ['status' => 'failed', 'message' => $e->getMessage()];
         }
     }
@@ -955,12 +1371,14 @@ class BusBookingController extends Controller
         if ($gateway->getOption('test')) {
             return rtrim((string) $gateway->getOption('test_base_url', 'https://api.chapa.co'), '/');
         }
+
         return rtrim((string) $gateway->getOption('live_base_url', 'https://api.chapa.co'), '/');
     }
 
     private function chapaSslVerifyOption()
     {
         $bundle = app_path('certs/cacert.pem');
+
         return is_file($bundle) ? $bundle : true;
     }
 
@@ -976,8 +1394,10 @@ class BusBookingController extends Controller
                     $flat[] = (string) $item;
                 }
             });
+
             return implode(' ', $flat) ?: __('Payment failed');
         }
+
         return __('Payment failed');
     }
 }

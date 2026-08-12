@@ -259,32 +259,33 @@ Route::prefix('support')->group(function () {
         })->name('api.support.ticket.action');
     });
 
-    Route::prefix('admin')->middleware('auth:sanctum')->namespace('Pro\Support\Admin')->group(function () {
+    Route::prefix('admin')->middleware('auth:sanctum')->group(function () {
         Route::prefix('topic')->group(function () {
             // List all topics (paginated, filterable)
-            Route::get('/', 'Topic\TopicController@index')->name('api.support.admin.topic.index');
+            Route::get('/', '\Pro\Support\Admin\Topic\TopicController@index')->name('api.support.admin.topic.index');
             // Get form defaults for create
-            Route::get('/create', 'Topic\TopicController@create')->name('api.support.admin.topic.create');
+            Route::get('/create', '\Pro\Support\Admin\Topic\TopicController@create')->name('api.support.admin.topic.create');
             // Get single topic for edit
-            Route::get('/edit/{id}', 'Topic\TopicController@edit')->name('api.support.admin.topic.edit')->where('id', '[0-9]+');
+            Route::get('/edit/{id}', '\Pro\Support\Admin\Topic\TopicController@edit')->name('api.support.admin.topic.edit')->where('id', '[0-9]+');
             // Create (id=0) or update topic
-            Route::post('/store/{id}', 'Topic\TopicController@store')->name('api.support.admin.topic.store')->where('id', '[0-9]+');
+            Route::post('/store/{id}', '\Pro\Support\Admin\Topic\TopicController@store')->name('api.support.admin.topic.store')->where('id', '[0-9]+');
             // Bulk delete / status change
-            Route::post('/bulkEdit', 'Topic\TopicController@bulkEdit')->name('api.support.admin.topic.bulkEdit');
+            Route::post('/bulkEdit', '\Pro\Support\Admin\Topic\TopicController@bulkEdit')->name('api.support.admin.topic.bulkEdit');
 
             // Category CRUD
-            Route::get('/category', 'Topic\CategoryController@index')->name('api.support.admin.topic.category.index');
-            Route::get('/category/getForSelect2', 'Topic\CategoryController@getForSelect2')->name('api.support.admin.topic.category.getForSelect2');
-            Route::get('/category/edit/{id}', 'Topic\CategoryController@edit')->name('api.support.admin.topic.category.edit')->where('id', '[0-9]+');
-            Route::post('/category/store/{id}', 'Topic\CategoryController@store')->name('api.support.admin.topic.category.store')->where('id', '[0-9]+');
-            Route::post('/category/bulkEdit', 'Topic\CategoryController@bulkEdit')->name('api.support.admin.topic.category.bulkEdit');
+            Route::get('/categories', '\Pro\Support\Admin\Topic\CategoryController@index')->name('api.support.admin.topic.categories');
+            Route::get('/category', '\Pro\Support\Admin\Topic\CategoryController@index')->name('api.support.admin.topic.category.index');
+            Route::get('/category/getForSelect2', '\Pro\Support\Admin\Topic\CategoryController@getForSelect2')->name('api.support.admin.topic.category.getForSelect2');
+            Route::get('/category/edit/{id}', '\Pro\Support\Admin\Topic\CategoryController@edit')->name('api.support.admin.topic.category.edit')->where('id', '[0-9]+');
+            Route::post('/category/store/{id}', '\Pro\Support\Admin\Topic\CategoryController@store')->name('api.support.admin.topic.category.store')->where('id', '[0-9]+');
+            Route::post('/category/bulkEdit', '\Pro\Support\Admin\Topic\CategoryController@bulkEdit')->name('api.support.admin.topic.category.bulkEdit');
 
             // Tag CRUD
-            Route::get('/tag', 'Topic\TagController@index')->name('api.support.admin.topic.tag.index');
-            Route::get('/tag/getForSelect2', 'Topic\TagController@getForSelect2')->name('api.support.admin.topic.tag.getForSelect2');
-            Route::get('/tag/edit/{id}', 'Topic\TagController@edit')->name('api.support.admin.topic.tag.edit')->where('id', '[0-9]+');
-            Route::post('/tag/store/{id}', 'Topic\TagController@store')->name('api.support.admin.topic.tag.store')->where('id', '[0-9]+');
-            Route::post('/tag/bulkEdit', 'Topic\TagController@bulkEdit')->name('api.support.admin.topic.tag.bulkEdit');
+            Route::get('/tag', '\Pro\Support\Admin\Topic\TagController@index')->name('api.support.admin.topic.tag.index');
+            Route::get('/tag/getForSelect2', '\Pro\Support\Admin\Topic\TagController@getForSelect2')->name('api.support.admin.topic.tag.getForSelect2');
+            Route::get('/tag/edit/{id}', '\Pro\Support\Admin\Topic\TagController@edit')->name('api.support.admin.topic.tag.edit')->where('id', '[0-9]+');
+            Route::post('/tag/store/{id}', '\Pro\Support\Admin\Topic\TagController@store')->name('api.support.admin.topic.tag.store')->where('id', '[0-9]+');
+            Route::post('/tag/bulkEdit', '\Pro\Support\Admin\Topic\TagController@bulkEdit')->name('api.support.admin.topic.tag.bulkEdit');
         });
 
         Route::prefix('ticket')->group(function () {

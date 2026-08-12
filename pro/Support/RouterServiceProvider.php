@@ -90,7 +90,6 @@ class RouterServiceProvider extends ServiceProvider
     {
         Route::prefix('api')
             ->middleware('api')
-            ->namespace($this->moduleNamespace)
             ->group(__DIR__ . '/Routes/api.php');
     }
 }

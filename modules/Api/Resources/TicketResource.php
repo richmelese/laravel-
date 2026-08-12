@@ -13,6 +13,7 @@ class TicketResource extends BaseJsonResource
                     
         return [
             'id' => $this->id,
+            'booking_id' => $this->booking_id,
             'index'=>$this->index,
             'email' => $this->email,
             'first_name'=>$this->first_name,

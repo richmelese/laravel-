@@ -300,7 +300,10 @@ class ChapaGateway extends BaseGateway
             return $requested;
         }
 
-        return $this->getCurrency();
+        // Booking totals are stored in the site's main currency. API clients
+        // are not required to send chapa_currency, so an omitted choice must
+        // not silently switch the charge to the configured alternate currency.
+        return $this->getMainCurrency();
     }
 
     public function process(Request $request, $booking, $service)
@@ -381,6 +384,8 @@ class ChapaGateway extends BaseGateway
 
         return response()->json([
             'url' => $checkoutUrl,
+            'payment_url' => $checkoutUrl,
+            'checkout_url' => $checkoutUrl,
             'amount' => $this->formatAmount($chargeAmount),
             'currency' => $currency,
             'main_amount' => $this->formatAmount((float) $booking->pay_now),

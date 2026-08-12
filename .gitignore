@@ -20,6 +20,9 @@ storage/app/public/*
 .env
 .env.backup
 .env.production
+/config/env.php
+/config/private_key.pem
+/config/public_key.pem
 .phpactor.json
 .phpunit.result.cache
 Homestead.json

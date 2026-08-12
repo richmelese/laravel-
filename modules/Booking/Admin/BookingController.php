@@ -9,6 +9,7 @@ use Modules\AdminController;
 use Modules\Booking\Emails\NewBookingEmail;
 use Modules\Booking\Events\BookingUpdatedEvent;
 use Modules\Booking\Models\Booking;
+use Modules\Hotel\Models\HotelRoomBooking;
 
 class BookingController extends AdminController
 {
@@ -52,6 +53,164 @@ class BookingController extends AdminController
         });
 
         return $bookings;
+    }
+
+    /**
+     * Build the sections used by the booking-detail modal. The raw booking is
+     * still returned by the API, while this payload gives API clients stable,
+     * display-ready labels and values without duplicating Blade-specific logic.
+     */
+    protected function bookingDetailUi(Booking $booking): array
+    {
+        $gateway = $booking->gateway ? get_payment_gateway_obj($booking->gateway) : null;
+        $adults = $booking->getMeta('adults');
+        $children = $booking->getMeta('children');
+
+        $detailRows = [
+            $this->uiRow('status', __('Booking Status'), $booking->status, $booking->status_name),
+            $this->uiRow('booking_date', __('Booking Date'), optional($booking->created_at)->toIso8601String(), display_date($booking->created_at)),
+            $this->uiRow('payment_method', __('Payment Method'), $booking->gateway, $gateway ? $gateway->name : $booking->gateway),
+        ];
+
+        if ($booking->start_date) {
+            $detailRows[] = $this->uiRow('check_in', __('Check in:'), $booking->start_date, display_date($booking->start_date));
+            $detailRows[] = $this->uiRow('check_out', __('Check out:'), $booking->end_date, display_date($booking->end_date));
+            $detailRows[] = $this->uiRow('nights', __('Nights:'), $booking->duration_nights);
+        }
+        if ($adults !== '') {
+            $detailRows[] = $this->uiRow('adults', __('Adults:'), (int) $adults);
+        }
+        if ($children !== '' && (int) $children > 0) {
+            $detailRows[] = $this->uiRow('children', __('Children:'), (int) $children);
+        }
+
+        $lineItems = $this->bookingLineItems($booking);
+        $paid = (float) $booking->paid;
+        $total = (float) $booking->total;
+
+        return [
+            'title' => __('Booking ID: #') . ' ' . $booking->id,
+            'booking_id' => $booking->id,
+            'tabs' => [
+                'booking_detail' => [
+                    'label' => __('Booking Detail'),
+                    'rows' => $detailRows,
+                    'line_items' => $lineItems,
+                    'totals' => [
+                        'total' => $this->moneyValue($total),
+                        'paid' => $this->moneyValue($paid),
+                        'remain' => $this->moneyValue(max(0, $total - $paid)),
+                    ],
+                ],
+                'personal_information' => [
+                    'label' => __('Personal Information'),
+                    'rows' => [
+                        $this->uiRow('first_name', __('First name'), $booking->first_name),
+                        $this->uiRow('last_name', __('Last name'), $booking->last_name),
+                        $this->uiRow('email', __('Email'), $booking->email),
+                        $this->uiRow('phone', __('Phone'), $booking->phone),
+                        $this->uiRow('address', __('Address line 1'), $booking->address),
+                        $this->uiRow('address2', __('Address line 2'), $booking->address2),
+                        $this->uiRow('city', __('City'), $booking->city),
+                        $this->uiRow('state', __('State/Province/Region'), $booking->state),
+                        $this->uiRow('zip_code', __('ZIP code/Postal code'), $booking->zip_code),
+                        $this->uiRow('country', __('Country'), $booking->country, get_country_name($booking->country)),
+                        $this->uiRow('customer_notes', __('Special Requirements'), $booking->customer_notes),
+                    ],
+                ],
+                'guests_information' => [
+                    'label' => __('Guests Information'),
+                    'guests' => $booking->passengers->map(function ($passenger) {
+                        return [
+                            'id' => $passenger->id,
+                            'seat_type' => $passenger->seat_type,
+                            'first_name' => $passenger->first_name,
+                            'last_name' => $passenger->last_name,
+                            'email' => $passenger->email,
+                            'phone' => $passenger->phone,
+                            'dob' => $passenger->dob,
+                            'id_card' => $passenger->id_card,
+                            'price' => $this->moneyValue((float) $passenger->price),
+                            'meta' => $passenger->meta,
+                        ];
+                    })->values(),
+                ],
+                'booking_note' => [
+                    'label' => __('Booking Note'),
+                    'note' => $booking->getMeta('note_for_vendor'),
+                ],
+            ],
+        ];
+    }
+
+    protected function bookingLineItems(Booking $booking): array
+    {
+        $items = [];
+
+        if ($booking->object_model === 'hotel') {
+            $rooms = HotelRoomBooking::query()
+                ->where('booking_id', $booking->id)
+                ->with('room')
+                ->get();
+
+            foreach ($rooms as $roomBooking) {
+                $quantity = max(1, (int) $roomBooking->number);
+                $amount = (float) $roomBooking->price * $quantity;
+                $items[] = [
+                    'type' => 'room',
+                    'label' => trim(($roomBooking->room->title ?? __('Room')) . ' * ' . $quantity),
+                    'quantity' => $quantity,
+                    'unit_price' => $this->moneyValue((float) $roomBooking->price),
+                    'amount' => $this->moneyValue($amount),
+                ];
+            }
+        }
+
+        foreach ((array) ($booking->getJsonMeta('extra_price') ?: []) as $extra) {
+            $items[] = [
+                'type' => 'extra',
+                'label' => $extra['name_' . app()->getLocale()] ?? $extra['name'] ?? __('Extra price'),
+                'amount' => $this->moneyValue((float) ($extra['total'] ?? 0)),
+            ];
+        }
+
+        $buyerFees = json_decode($booking->buyer_fees ?: '[]', true);
+        $fees = array_merge(is_array($buyerFees) ? $buyerFees : [], (array) ($booking->vendor_service_fee ?: []));
+        foreach ($fees as $fee) {
+            $unitAmount = (float) ($fee['price'] ?? 0);
+            if (($fee['unit'] ?? null) === 'percent') {
+                $unitAmount = ((float) $booking->total_before_fees / 100) * $unitAmount;
+            }
+            $quantity = (($fee['per_person'] ?? null) === 'on') ? max(1, (int) $booking->total_guests) : 1;
+            $items[] = [
+                'type' => 'fee',
+                'label' => $fee['name_' . app()->getLocale()] ?? $fee['name'] ?? __('Service fee'),
+                'description' => $fee['desc_' . app()->getLocale()] ?? $fee['desc'] ?? null,
+                'quantity' => $quantity,
+                'unit_price' => $this->moneyValue($unitAmount),
+                'amount' => $this->moneyValue($unitAmount * $quantity),
+            ];
+        }
+
+        return $items;
+    }
+
+    protected function uiRow(string $key, string $label, $value, $displayValue = null): array
+    {
+        return [
+            'key' => $key,
+            'label' => $label,
+            'value' => $value,
+            'display_value' => $displayValue ?? $value,
+        ];
+    }
+
+    protected function moneyValue(float $amount): array
+    {
+        return [
+            'amount' => $amount,
+            'formatted' => format_money_main($amount),
+        ];
     }
 
     public function index(Request $request)
@@ -116,13 +275,14 @@ class BookingController extends AdminController
             $query->where('vendor_id', Auth::id());
         }
         $query->whereIn('object_model', array_keys(get_bookable_services()));
-        $booking = $query->with(['vendor'])->first();
+        $booking = $query->with(['vendor', 'passengers'])->first();
         if (empty($booking)) {
             return response()->json(['message' => __('Not found')], 404);
         }
         $this->appendServiceNames(collect([$booking]));
         return response()->json([
             'data' => $booking,
+            'ui' => $this->bookingDetailUi($booking),
             'statuses'       => config('booking.statuses'),
             'booking_update' => $this->hasPermission('booking_update'),
         ]);

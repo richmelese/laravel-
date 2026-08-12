@@ -40,6 +40,9 @@ Route::post('reset-password', 'AuthController@resetPassword');
 /* Register - Login */
 Route::group(['middleware' => 'api', 'prefix' => 'auth'], function ($router) {
     Route::post('login', 'AuthController@login')->middleware(['throttle:login']);
+    Route::post('telebirr-miniapp', 'AuthController@telebirrMiniApp')
+        ->middleware(['throttle:10,1'])
+        ->name('api.auth.telebirr-miniapp');
     Route::post('register', 'AuthController@register');
     /** JSON resend verification email; requires Authorization: Bearer token (same as /api/auth/me). */
     Route::post('email/verification-notification', 'AuthController@resendEmailVerification')
@@ -135,6 +138,10 @@ Route::group(['prefix' => 'user', 'middleware' => ['api']], function ($router) {
         Route::get('/','MyTicketController@index')->name("api.user.my-ticket.index");
         Route::get('/qr-image/{ticket_id}','MyTicketController@qrImage')->name("api.user.my-ticket.qr-image");
     });
+
+    Route::get('/bookings/{booking_id}/tickets', 'MyTicketController@bookingTickets')
+        ->where('booking_id', '[0-9]+')
+        ->name('api.user.booking.tickets');
 
     // Manage Tickets
     Route::group(['prefix' => '/booking/ticket'], function ($router) {

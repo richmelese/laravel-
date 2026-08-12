@@ -402,7 +402,12 @@ class BookingController extends \App\Http\Controllers\Controller
                     'url' => $booking->getDetailUrl(false),
                 ], __("Checkout started"));
             } catch (\Throwable $exception) {
-                return $this->sendError($exception->getMessage());
+                Log::error('Payment gateway checkout failed', [
+                    'booking_id' => $booking->id,
+                    'gateway' => $booking->gateway,
+                    'error' => $exception->getMessage(),
+                ]);
+                return $this->sendError($exception->getMessage())->setStatusCode(502);
             }
         } else {
             if ($booking->paid < $booking->total) {

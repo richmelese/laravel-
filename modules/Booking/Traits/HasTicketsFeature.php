@@ -32,7 +32,7 @@ trait HasTicketsFeature
 
         $user_id = auth()->id();
 
-        $allowStatus = [Booking::COMPLETED, Booking::PAID];
+        $allowStatus = [Booking::PAID, Booking::CONFIRMED, Booking::COMPLETED];
 
         if (empty($booking) or !in_array($booking->status, $allowStatus)) {
             throw new \Exception('Booking status not valid');
