@@ -111,7 +111,12 @@ class CarController extends Controller
 
     public function detail(Request $request, $slug)
     {
-        $row = $this->carClass::where('slug', $slug)->with(['location','translation','hasWishList'])->first();;
+        $row = $this->carClass::where(function ($q) use ($slug) {
+            $q->where('slug', $slug);
+            if (is_numeric($slug)) {
+                $q->orWhere('id', (int) $slug);
+            }
+        })->with(['location','translation','hasWishList'])->first();
         if ( empty($row) or !$row->hasPermissionDetailView()) {
             if ($request->wantsJson() || $request->is('api/*')) {
                 return response()->json(['message' => 'Car not found'], 404);

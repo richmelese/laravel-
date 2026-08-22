@@ -44,11 +44,13 @@ class CategoryController extends AdminController
             ]
         ];
         if ($this->isApiRequest($request)) {
+            $rows = collect($data['rows'])->map(function ($cat) {
+                return $cat instanceof LocationCategory ? $cat->toApiPayload() : $cat;
+            });
             return response()->json([
+                'success' => true,
                 'data' => [
-                    'rows'        => $data['rows'],
-                    'row'         => $data['row'],
-                    'translation' => $data['translation'],
+                    'rows' => $rows->values(),
                 ],
             ]);
         }
@@ -62,7 +64,7 @@ class CategoryController extends AdminController
         $row = $this->locationCategoryClass::find($id);
         if (empty($row)) {
             if ($this->isApiRequest($request)) {
-                return response()->json(['message' => __('Category not found')], 404);
+                return response()->json(['success' => false, 'message' => __('Category not found')], 404);
             }
 
             return redirect(route('location.admin.category.index'));
@@ -85,11 +87,15 @@ class CategoryController extends AdminController
             ]
         ];
         if ($this->isApiRequest($request)) {
+            $parents = collect($data['parents'])->map(function ($cat) {
+                return $cat instanceof LocationCategory ? $cat->toApiPayload() : $cat;
+            });
             return response()->json([
+                'success' => true,
                 'data' => [
-                    'row'         => $data['row'],
-                    'translation' => $data['translation'],
-                    'parents'     => $data['parents'],
+                    'row'         => $row instanceof LocationCategory ? $row->toApiPayload() : $row,
+                    'translation' => $translation,
+                    'parents'     => $parents->values(),
                     'enable_multi_lang' => $data['enable_multi_lang'],
                 ],
             ]);
@@ -107,7 +113,7 @@ class CategoryController extends AdminController
             ]);
         } catch (\Illuminate\Validation\ValidationException $e) {
             if ($this->isApiRequest($request)) {
-                return response()->json(['message' => __('Validation failed'), 'errors' => $e->errors()], 422);
+                return response()->json(['success' => false, 'message' => __('Validation failed'), 'errors' => $e->errors()], 422);
             }
             throw $e;
         }
@@ -115,7 +121,7 @@ class CategoryController extends AdminController
             $row = $this->locationCategoryClass::find($id);
             if (empty($row)) {
                 if ($this->isApiRequest($request)) {
-                    return response()->json(['message' => __('Category not found')], 404);
+                    return response()->json(['success' => false, 'message' => __('Category not found')], 404);
                 }
 
                 return redirect(route('location.admin.category.index'));
@@ -130,7 +136,12 @@ class CategoryController extends AdminController
 
         if ($res) {
             if ($this->isApiRequest($request)) {
-                return response()->json(['message' => __('Category saved'), 'data' => $row]);
+                $fresh = $row->fresh();
+                return response()->json([
+                    'success' => true,
+                    'message' => __('Category saved'),
+                    'data'    => $fresh instanceof LocationCategory ? $fresh->toApiPayload() : $row->toApiPayload(),
+                ]);
             }
 
             return back()->with('success',  __('Category saved') );

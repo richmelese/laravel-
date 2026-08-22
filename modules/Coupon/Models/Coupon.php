@@ -110,7 +110,16 @@ class Coupon extends BaseModel
                     'message'=> __("You need to log in to use the coupon code!")
                 ];
             }
-            if(!in_array($user_id,$this->only_for_user)){
+            $allowedUsers = $this->only_for_user;
+            if (!is_array($allowedUsers)) {
+                if (is_string($allowedUsers)) {
+                    $allowedUsers = json_decode($allowedUsers, true) ?? explode(',', $allowedUsers);
+                } else {
+                    $allowedUsers = [$allowedUsers];
+                }
+            }
+            $allowedUsers = array_map('intval', (array) $allowedUsers);
+            if(!in_array((int)$user_id, $allowedUsers, true)){
                 return [
                     'status'=>0,
                     'message'=> __("Coupon code is not applied to your account!")
@@ -175,19 +184,87 @@ class Coupon extends BaseModel
     public function couponServices(){
         return $this->hasMany( CouponServices::class, 'coupon_id');
     }
+    public function getServicesAttribute($value)
+    {
+        if (empty($value)) {
+            return [];
+        }
+        if (is_array($value)) {
+            return array_values(array_filter(array_map('intval', $value)));
+        }
+        if (is_string($value)) {
+            $decoded = json_decode($value, true);
+            if (is_array($decoded)) {
+                return array_values(array_filter(array_map('intval', $decoded)));
+            }
+            return array_values(array_filter(array_map('intval', explode(',', $value))));
+        }
+        return [(int) $value];
+    }
+
+    public function getOnlyForUserAttribute($value)
+    {
+        if (empty($value)) {
+            return [];
+        }
+        if (is_array($value)) {
+            return array_values(array_filter(array_map('intval', $value)));
+        }
+        if (is_string($value)) {
+            $decoded = json_decode($value, true);
+            if (is_array($decoded)) {
+                return array_values(array_filter(array_map('intval', $decoded)));
+            }
+            return array_values(array_filter(array_map('intval', explode(',', $value))));
+        }
+        return [(int) $value];
+    }
+
+    public function toApiPayload(): array
+    {
+        $payload = $this->toArray();
+
+        $payload['services'] = $this->services ?? [];
+        $payload['only_for_user'] = $this->only_for_user ?? [];
+
+        $payload['min_total'] = $this->min_total !== null ? (float) $this->min_total : 0;
+        $payload['max_total'] = $this->max_total !== null ? (float) $this->max_total : 0;
+        $payload['quantity_limit'] = $this->quantity_limit !== null ? (int) $this->quantity_limit : 0;
+        $payload['limit_per_user'] = $this->limit_per_user !== null ? (int) $this->limit_per_user : 0;
+
+        $payload['image_id'] = $this->image_id ? (int) $this->image_id : null;
+        $payload['image_url'] = $this->image_id ? get_file_url($this->image_id, 'full') : null;
+
+        $payload['author_id'] = $this->author_id ? (int) $this->author_id : ($this->create_user ? (int) $this->create_user : null);
+        $payload['is_vendor'] = (int) ($this->is_vendor ?? 0);
+
+        return $payload;
+    }
+
     /**
      * Using for select2
      * @return array
      */
     public function getServicesToArray(){
         $data = [];
-        if(!empty($this->services)){
-            $services = Service::selectRaw('id,object_id,object_model,title')->whereIn('id',$this->services)->get();
-            foreach ($services as $item){
-                $data[] = [
-                    'id'   => $item->id,
-                    'text' => strtoupper($item->object_model) . " (#{$item->object_id}): {$item->title}"
-                ];
+        $services = $this->services;
+        if(!empty($services)){
+            if (!is_array($services)) {
+                if (is_string($services)) {
+                    $services = json_decode($services, true) ?? explode(',', $services);
+                } else {
+                    $services = [$services];
+                }
+            }
+            $services = array_filter(array_map('intval', (array) $services));
+            if (!empty($services)) {
+                $items = Service::selectRaw('id,object_id,object_model,title')->whereIn('id', $services)->get();
+                foreach ($items as $item){
+                    $data[] = [
+                        'id'   => $item->id,
+                        'text' => strtoupper($item->object_model) . " (#{$item->object_id}): {$item->title}"
+                    ];
+                }
             }
         }
         return $data;
@@ -198,13 +275,24 @@ class Coupon extends BaseModel
      */
     public function getUsersToArray(){
         $data = [];
-        if(!empty($this->only_for_user)){
-            $users = User::where('status','publish')->whereIn('id',$this->only_for_user)->get();
-            foreach ($users as $item){
-                $data[] = [
-                    'id'   => $item->id,
-                    'text' => "(#{$item->id}): {$item->getDisplayName()}"
-                ];
+        $users = $this->only_for_user;
+        if(!empty($users)){
+            if (!is_array($users)) {
+                if (is_string($users)) {
+                    $users = json_decode($users, true) ?? explode(',', $users);
+                } else {
+                    $users = [$users];
+                }
+            }
+            $users = array_filter(array_map('intval', (array) $users));
+            if (!empty($users)) {
+                $items = User::where('status', 'publish')->whereIn('id', $users)->get();
+                foreach ($items as $item){
+                    $data[] = [
+                        'id'   => $item->id,
+                        'text' => "(#{$item->id}): {$item->getDisplayName()}"
+                    ];
+                }
             }
         }
         return $data;

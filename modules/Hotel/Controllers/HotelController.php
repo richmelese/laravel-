@@ -146,7 +146,13 @@ class HotelController extends Controller
 
     public function detail(Request $request, $slug)
     {
-        $row = $this->hotelClass::where('slug', $slug)->with(['location','translation','hasWishList'])->first();;
+        $row = $this->hotelClass::where(function ($q) use ($slug) {
+            $q->where('slug', $slug);
+            if (is_numeric($slug)) {
+                $q->orWhere('id', (int) $slug);
+            }
+        })->with(['location', 'translation', 'hasWishList'])->first();
+
         if (empty($row) || !$row->hasPermissionDetailView()) {
             if ($this->isApiRequest($request)) {
                 return response()->json(['message' => __('Hotel not found')], 404);

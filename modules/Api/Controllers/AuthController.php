@@ -19,6 +19,7 @@ use Modules\User\Emails\ResetPasswordToken;
 use Modules\User\Events\SendMailUserRegistered;
 use Modules\User\Resources\UserResource;
 use Validator;
+use Illuminate\Validation\Rules\Password;
 use App\Traits\HasSocialLoginFeatures;
 use Throwable;
 
@@ -291,32 +292,53 @@ class AuthController extends Controller
             'first_name' => [
                 'required',
                 'string',
-                'max:255'
+                'min:2',
+                'max:255',
+                'regex:/^[\p{L}\s\-\'\.]+$/u'
             ],
             'last_name'  => [
                 'required',
                 'string',
-                'max:255'
+                'min:2',
+                'max:255',
+                'regex:/^[\p{L}\s\-\'\.]+$/u'
             ],
             'email'      => [
                 'required',
                 'string',
                 'email',
                 'max:255',
-                'unique:users'
+                'unique:users,email'
             ],
             'password'   => [
                 'required',
-                'string'
+                'string',
+                Password::min(8)
+                    ->mixedCase()
+                    ->numbers()
+            ],
+            'phone'      => [
+                'required',
+                'string',
+                'unique:users,phone',
+                'regex:/^\+?[1-9]\d{6,14}$/'
             ],
             'term'       => ['required'],
         ];
         $messages = [
+            'phone.required'      => __('Phone is required field'),
+            'phone.unique'        => __('The phone number has already been taken'),
+            'phone.regex'         => __('Please enter a valid phone number (7-15 digits, optional leading +)'),
             'email.required'      => __('Email is required field'),
             'email.email'         => __('Email invalidate'),
+            'email.unique'        => __('The email address has already been taken'),
             'password.required'   => __('Password is required field'),
             'first_name.required' => __('The first name is required field'),
+            'first_name.min'      => __('The first name must be at least 2 characters'),
+            'first_name.regex'    => __('The first name format is invalid'),
             'last_name.required'  => __('The last name is required field'),
+            'last_name.min'       => __('The last name must be at least 2 characters'),
+            'last_name.regex'     => __('The last name format is invalid'),
             'term.required'       => __('The terms and conditions field is required'),
         ];
         $validator = Validator::make($request->all(), $rules, $messages);
@@ -324,12 +346,12 @@ class AuthController extends Controller
             return $this->sendError($validator->errors());
         } else {
             $user = \App\User::create([
-                'first_name' => $request->input('first_name'),
-                'last_name'  => $request->input('last_name'),
-                'email'      => $request->input('email'),
+                'first_name' => trim($request->input('first_name')),
+                'last_name'  => trim($request->input('last_name')),
+                'email'      => strtolower(trim($request->input('email'))),
                 'password'   => Hash::make($request->input('password')),
-                'publish'    => $request->input('publish'),
-                'phone'    => $request->input('phone'),
+                'status'     => 'publish',
+                'phone'      => trim($request->input('phone')),
             ]);
             $user->assignRole('customer');
             try {

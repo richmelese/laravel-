@@ -33,16 +33,21 @@ class VendorController extends FrontendController
             'first_name' => [
                 'required',
                 'string',
-                'max:255'
+                'min:2',
+                'max:255',
+                'regex:/^[\p{L}\s\-\'\.]+$/u'
             ],
             'last_name'  => [
                 'required',
                 'string',
-                'max:255'
+                'min:2',
+                'max:255',
+                'regex:/^[\p{L}\s\-\'\.]+$/u'
             ],
             'business_name'  => [
                 'required',
                 'string',
+                'min:2',
                 'max:255'
             ],
             'email'      => [
@@ -50,7 +55,7 @@ class VendorController extends FrontendController
                 'string',
                 'email',
                 'max:255',
-                'unique:users'
+                'unique:users,email'
             ],
             'password'   => [
                 'required',
@@ -61,15 +66,29 @@ class VendorController extends FrontendController
                     ->symbols()
                     ->uncompromised(),
             ],
+            'phone'      => [
+                'required',
+                'string',
+                'unique:users,phone',
+                'regex:/^\+?[1-9]\d{6,14}$/'
+            ],
             'term'       => ['required'],
         ];
         $messages = [
+            'phone.required'      => __('Phone is required field'),
+            'phone.unique'        => __('The phone number has already been taken'),
+            'phone.regex'         => __('Please enter a valid phone number (7-15 digits, optional leading +)'),
             'email.required'      => __('Email is required field'),
             'email.email'         => __('Email invalidate'),
+            'email.unique'        => __('The email address has already been taken'),
             'password.required'   => __('Password is required field'),
             'first_name.required' => __('The first name is required field'),
+            'first_name.min'      => __('The first name must be at least 2 characters'),
+            'first_name.regex'    => __('The first name format is invalid'),
             'last_name.required'  => __('The last name is required field'),
-            'business_name.required'  => __('The business name is required field'),
+            'last_name.min'       => __('The last name must be at least 2 characters'),
+            'last_name.regex'     => __('The last name format is invalid'),
+            'business_name.required' => __('The business name is required field'),
             'term.required'       => __('The terms and conditions field is required'),
         ];
         if (ReCaptchaEngine::isEnable() and setting_item("user_enable_register_recaptcha")) {
@@ -96,12 +115,12 @@ class VendorController extends FrontendController
             $user = new \App\User();
 
             $user = $user->fill([
-                'first_name'=>$request->input('first_name'),
-                'last_name'=>$request->input('last_name'),
-                'email'=>$request->input('email'),
-                'password'=>Hash::make($request->input('password')),
-                'business_name'=>$request->input('business_name'),
-                'phone'=>$request->input('phone'),
+                'first_name'    => trim($request->input('first_name')),
+                'last_name'     => trim($request->input('last_name')),
+                'email'         => strtolower(trim($request->input('email'))),
+                'password'      => Hash::make($request->input('password')),
+                'business_name' => trim($request->input('business_name')),
+                'phone'         => trim($request->input('phone')),
             ]);
             $user->status = 'publish';
 

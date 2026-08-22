@@ -136,7 +136,12 @@
 
         public function detail(Request $request, $slug)
         {
-            $row = $this->tourClass::where('slug', $slug)->with(['location','translation','hasWishList'])->first();
+            $row = $this->tourClass::where(function ($q) use ($slug) {
+                $q->where('slug', $slug);
+                if (is_numeric($slug)) {
+                    $q->orWhere('id', (int) $slug);
+                }
+            })->with(['location','translation','hasWishList'])->first();
             if ( empty($row) or !$row->hasPermissionDetailView()) {
                 if ($request->wantsJson() || $request->is('api/*')) {
                     return response()->json(['message' => 'Tour not found'], 404);

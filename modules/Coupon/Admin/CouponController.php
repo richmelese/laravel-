@@ -48,9 +48,12 @@ class CouponController extends AdminController
         ];
         if ($this->isApiRequest($request)) {
             $rows = $data['rows'];
+            $items = collect($rows->items())->map(function ($coupon) {
+                return $coupon->toApiPayload();
+            });
             return response()->json([
                 'success' => true,
-                'data' => $rows->items(),
+                'data' => $items,
                 'total' => $rows->total(),
                 'max_pages' => $rows->lastPage(),
             ]);
@@ -86,7 +89,7 @@ class CouponController extends AdminController
         if ($this->isApiRequest($request)) {
             return response()->json([
                 'success' => true,
-                'data' => $row,
+                'data' => $row->toApiPayload(),
                 'services' => $row->getServicesToArray(),
                 'users' => $row->getUsersToArray(),
             ]);
@@ -115,7 +118,7 @@ class CouponController extends AdminController
         if ($this->isApiRequest($request)) {
             return response()->json([
                 'success' => true,
-                'data' => $row,
+                'data' => $row->toApiPayload(),
                 'services' => [],
                 'users' => [],
             ]);
@@ -167,15 +170,23 @@ class CouponController extends AdminController
             'image_id'
         ];
 
-        $row->fillByAttr($dataKeys,$request->input());
+        $input = $request->input();
+        if (isset($input['services']) && !is_array($input['services']) && $input['services'] !== null) {
+            $input['services'] = is_string($input['services']) ? array_filter(array_map('intval', explode(',', $input['services']))) : [(int) $input['services']];
+        }
+        if (isset($input['only_for_user']) && !is_array($input['only_for_user']) && $input['only_for_user'] !== null) {
+            $input['only_for_user'] = is_string($input['only_for_user']) ? array_filter(array_map('intval', explode(',', $input['only_for_user']))) : [(int) $input['only_for_user']];
+        }
+
+        $row->fillByAttr($dataKeys, $input);
 
         //Save Coupon Product
-        $services = $request->input('services');
+        $services = $input['services'] ?? null;
         $coupon_product = new CouponServices();
         $coupon_product->clean($row->id);
         if(!empty($services) and is_array($services)){
-            $services = Service::selectRaw('id,object_id,object_model')->whereIn('id',$services)->get();
-            foreach ($services as $service){
+            $serviceModels = Service::selectRaw('id,object_id,object_model')->whereIn('id',$services)->get();
+            foreach ($serviceModels as $service){
                 $coupon_product = new CouponServices();
                 $coupon_product->fill([
                         'coupon_id' => $row->id,
@@ -189,10 +200,11 @@ class CouponController extends AdminController
         $res = $row->save();
         if ($res) {
             if ($this->isApiRequest($request)) {
+                $fresh = $row->fresh();
                 return response()->json([
                     'success' => true,
                     'message' => $id > 0 ? __('Coupon updated') : __('Coupon created'),
-                    'data' => $row->fresh(),
+                    'data' => $fresh ? $fresh->toApiPayload() : $row->toApiPayload(),
                 ]);
             }
 

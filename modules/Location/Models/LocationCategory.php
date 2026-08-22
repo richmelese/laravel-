@@ -47,6 +47,34 @@ class LocationCategory extends BaseModel
             'slug'=>$this->slug,
         ];
     }
+
+    public function toApiPayload(): array
+    {
+        $createdAt = $this->created_at ? $this->created_at->toIso8601String() : now()->toIso8601String();
+        $updatedAt = $this->updated_at ? $this->updated_at->toIso8601String() : $createdAt;
+
+        $children = [];
+        if ($this->relationLoaded('children') && !empty($this->children)) {
+            foreach ($this->children as $child) {
+                $children[] = $child instanceof LocationCategory ? $child->toApiPayload() : $child;
+            }
+        }
+
+        return [
+            'id'             => (int) $this->id,
+            'name'           => (string) ($this->name ?? ''),
+            'icon_class'     => (string) ($this->icon_class ?? ''),
+            'content'        => (string) ($this->content ?? ''),
+            'slug'           => (string) ($this->slug ?: \Illuminate\Support\Str::slug($this->name ?? '')),
+            'status'         => (string) ($this->status ?? 'publish'),
+            'parent_id'      => $this->parent_id ? (int) $this->parent_id : null,
+            'created_at'     => $createdAt,
+            'updated_at'     => $updatedAt,
+            'formatted_date' => display_date($this->updated_at ?: $this->created_at ?: now()),
+            'children'       => $children,
+        ];
+    }
+
     public function location_category_translations(){
         return $this->hasOne(LocationCategoryTranslation::class,'origin_id')->where('locale',app()->getLocale());
     }

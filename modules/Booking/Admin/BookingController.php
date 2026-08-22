@@ -379,8 +379,48 @@ class BookingController extends AdminController
 
     public function email_preview(Request $request, $id)
     {
-        $booking = Booking::find($id);
-        return (new NewBookingEmail($booking))->render();
+        $this->checkPermission('booking_view');
+        $query = Booking::query()->where('id', $id);
+        if (!$this->hasPermission('booking_manage_others')) {
+            $query->where('vendor_id', Auth::id());
+        }
+        $booking = $query->first();
+
+        if (empty($booking)) {
+            if ($this->isApiRequest($request) || $request->wantsJson() || $request->query('format') === 'json') {
+                return response()->json(['message' => __('Booking not found')], 404);
+            }
+            abort(404);
+        }
+
+        $to = $request->input('to', 'admin');
+        $mailable = new NewBookingEmail($booking, $to);
+        $mailable->build();
+        $html = $mailable->render();
+        $subject = $mailable->subject ?? __('[:site_name] Booking Email Preview', ['site_name' => setting_item('site_title')]);
+
+        if ($this->isApiRequest($request) || $request->wantsJson() || $request->query('format') === 'json') {
+            return response()->json([
+                'data' => [
+                    'id'      => (int) $booking->id,
+                    'to'      => $to,
+                    'subject' => $subject,
+                    'html'    => $html,
+                    'booking' => [
+                        'id'         => (int) $booking->id,
+                        'code'       => $booking->code,
+                        'status'     => $booking->status,
+                        'first_name' => $booking->first_name,
+                        'last_name'  => $booking->last_name,
+                        'email'      => $booking->email,
+                        'phone'      => $booking->phone,
+                        'total'      => (float) $booking->total,
+                    ],
+                ]
+            ]);
+        }
+
+        return $html;
     }
 
     // =========================================================================
