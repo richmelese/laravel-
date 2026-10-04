@@ -12,7 +12,20 @@ Route::group(['prefix' => 'boat'], function () {
 
     Route::get('/getForSelect2', 'BoatController@getForSelect2')->name('api_admin.boat.getForSelect2');
 
-    Route::get('/attribute/getForSelect2', 'AttributeController@getForSelect2')->name('api_admin.boat.attribute.term.getForSelect2');
+    Route::group(['prefix' => 'attribute'], function () {
+        Route::get('/', 'AttributeController@index')->name('api_admin.boat.attribute.index');
+        Route::get('/edit/{id}', 'AttributeController@edit')->name('api_admin.boat.attribute.edit');
+        Route::post('/store/{id}', 'AttributeController@store')->name('api_admin.boat.attribute.store');
+        Route::post('/editAttrBulk', 'AttributeController@editAttrBulk')->name('api_admin.boat.attribute.editAttrBulk');
+
+        Route::get('/terms/{id}', 'AttributeController@terms')->name('api_admin.boat.attribute.term.index');
+        Route::get('/term_edit/{id}', 'AttributeController@term_edit')->name('api_admin.boat.attribute.term.edit');
+        Route::post('/term_store', 'AttributeController@term_store')->name('api_admin.boat.attribute.term.store');
+        Route::post('/editTermBulk', 'AttributeController@editTermBulk')->name('api_admin.boat.attribute.term.editTermBulk');
+        Route::post('/term_edit_bulk', 'AttributeController@editTermBulk')->name('api_admin.boat.attribute.term.edit_bulk_alias');
+
+        Route::get('/getForSelect2', 'AttributeController@getForSelect2')->name('api_admin.boat.attribute.term.getForSelect2');
+    });
 
     Route::group(['prefix' => 'availability'], function () {
         Route::get('/loadDates', 'AvailabilityController@loadDates')->name('api_admin.boat.availability.loadDates');

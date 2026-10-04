@@ -301,6 +301,11 @@ class CarController extends AdminController
             'default_state',
             'enable_service_fee',
             'service_fee',
+            'service_fee_amount',
+            'service_fee_type',
+            'enable_buyer_fee',
+            'buyer_fee_amount',
+            'buyer_fee_type',
             'min_day_before_booking',
             'min_day_stays',
             'ical_import_url'

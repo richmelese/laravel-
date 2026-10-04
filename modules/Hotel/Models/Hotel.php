@@ -818,7 +818,6 @@ class Hotel extends Bookable
                 $translation = $room->translate();
                 $terms = Terms::getTermsByIdForAPI($room->terms->pluck('term_id'));
                 $term_features = [];
-                $i = 0;
                 if (!empty($terms)) {
                     foreach ($terms as $term) {
                         if (!empty($term['child'])) {
@@ -827,30 +826,33 @@ class Hotel extends Bookable
                                     'icon' => $child['icon'] ?? 'fa fa-smile-o',
                                     'title' => $child['title']
                                 ];
-                                $i++;
-                                if ($i == 5) break;
                             }
                         }
-                        if ($i == 5) break;
                     }
                 }
+                // `isAvailableAt()` only fills tmp_price/tmp_number/tmp_nights when it is given a
+                // start/end date range (e.g. the real availability search). On first load (no dates
+                // picked yet) those stay null, so fall back to the room's own base price/count.
+                $price = $room->tmp_price ?? $room->price;
+                $number = $room->tmp_number ?? $room->number;
+                $nights = $room->tmp_nights ?: 1;
                 $res[] = [
                     'id'              => $room->id,
                     'title'           => $translation->title,
-                    'price'           => $room->tmp_price ?? 0,
+                    'price'           => $price ?? 0,
                     'size'            => $room->size,
                     'size_html'       => $room->size ? size_unit_format($room->size) : '',
                     'beds_html'       => $room->beds ? 'x' . $room->beds : '',
                     'adults_html'     => $room->adults ? 'x' . $room->adults : '',
                     'children_html'   => $room->children ? 'x' . $room->children : '',
                     'number_selected' => 0,
-                    'number'          => (int)$room->tmp_number ?? 0,
+                    'number'          => (int)$number,
                     'min_day_stays'   => $room->min_day_stays ?? 0,
                     'image'           => $room->image_id ? get_file_url($room->image_id, 'medium') : '',
                     'tmp_number'      => $room->tmp_number,
                     'gallery'         => $room->getGallery(),
-                    'price_html'      => format_money($room->tmp_price) . '<span class="unit">/' . ($room->tmp_nights ? __(':count nights', ['count' => $room->tmp_nights]) : __(":count night", ['count' => $room->tmp_nights])) . '</span>',
-                    'price_text'      => format_money($room->tmp_price) . '/' . ($room->tmp_nights ? __(':count nights', ['count' => $room->tmp_nights]) : __(":count night", ['count' => $room->tmp_nights])),
+                    'price_html'      => format_money($price) . '<span class="unit">/' . __(':count nights', ['count' => $nights]) . '</span>',
+                    'price_text'      => format_money($price) . '/' . __(':count nights', ['count' => $nights]),
                     'terms'           => $terms,
                     'term_features'   => $term_features
                 ];

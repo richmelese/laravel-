@@ -21,6 +21,7 @@ Route::group(['prefix' => 'hotel'], function () {
         Route::get('/term_edit/{id}', 'AttributeController@term_edit')->name('api_admin.hotel.attribute.term.edit');
         Route::post('/term_store', 'AttributeController@term_store')->name('api_admin.hotel.attribute.term.store');
         Route::post('/editTermBulk', 'AttributeController@editTermBulk')->name('api_admin.hotel.attribute.term.bulkEdit');
+        Route::post('/term_edit_bulk', 'AttributeController@editTermBulk')->name('api_admin.hotel.attribute.term.edit_bulk_alias');
 
         Route::get('/getForSelect2', 'AttributeController@getForSelect2')->name('api_admin.hotel.attribute.term.getForSelect2');
         Route::get('/getAttributeForSelect2', 'AttributeController@getAttributeForSelect2')->name('api_admin.hotel.attribute.getForSelect2');
@@ -36,6 +37,8 @@ Route::group(['prefix' => 'hotel'], function () {
             Route::get('/terms/{id}', 'RoomAttributeController@terms')->name('api_admin.hotel.room.attribute.term.index');
             Route::get('/term_edit/{id}', 'RoomAttributeController@term_edit')->name('api_admin.hotel.room.attribute.term.edit');
             Route::post('/term_store', 'RoomAttributeController@term_store')->name('api_admin.hotel.room.attribute.term.store');
+            Route::post('/editTermBulk', 'RoomAttributeController@editTermBulk')->name('api_admin.hotel.room.attribute.term.bulkEdit');
+            Route::post('/term_edit_bulk', 'RoomAttributeController@editTermBulk')->name('api_admin.hotel.room.attribute.term.edit_bulk_alias');
             Route::get('/getForSelect2', 'RoomAttributeController@getForSelect2')->name('api_admin.hotel.room.attribute.term.getForSelect2');
         });
 

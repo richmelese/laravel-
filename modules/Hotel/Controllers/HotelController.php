@@ -204,6 +204,10 @@ class HotelController extends Controller
             } else {
                 $rowData['gallery_urls'] = [];
             }
+            $termIds = $row->terms()->pluck('term_id');
+            $rowData['terms'] = $termIds->isNotEmpty()
+                ? \Modules\Core\Models\Terms::whereIn('id', $termIds)->get(['id', 'name', 'attr_id'])->toArray()
+                : [];
             return $this->sendSuccess([
                 'row' => $rowData,
                 'translation' => $translation,

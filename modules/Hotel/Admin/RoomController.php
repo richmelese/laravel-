@@ -314,6 +314,35 @@ class RoomController extends AdminController
                 }
                 $msg = __('Deleted success!');
                 break;
+            case "permanently_delete":
+                foreach ($ids as $id) {
+                    $query = $this->roomClass::withTrashed()->where("id", $id);
+                    if (!$this->hasPermission('hotel_manage_others')) {
+                        $query->where("create_user", Auth::id());
+                        $this->checkPermission('hotel_delete');
+                    }
+                    $row = $query->first();
+                    if(!empty($row)){
+                        $row->forceDelete();
+                    }
+                }
+                $msg = __('Permanently delete success!');
+                break;
+            case "recovery":
+            case "restore":
+                foreach ($ids as $id) {
+                    $query = $this->roomClass::withTrashed()->where("id", $id);
+                    if (!$this->hasPermission('hotel_manage_others')) {
+                        $query->where("create_user", Auth::id());
+                        $this->checkPermission('hotel_update');
+                    }
+                    $row = $query->first();
+                    if(!empty($row)){
+                        $row->restore();
+                    }
+                }
+                $msg = __('Recovery success!');
+                break;
             case "clone":
                 $this->checkPermission('hotel_create');
                 foreach ($ids as $id) {

@@ -29,7 +29,13 @@ class Attributes extends BaseModel
 
     public static function getAllAttributesForApi($service_type){
         $data = [];
-        $attributes = Attributes::selectRaw("id,name,slug,service")->where('service', $service_type)->get();
+        $attributes = Attributes::selectRaw("id,name,slug,service")
+            ->where('service', $service_type)
+            ->where(function ($q) {
+                $q->whereNull('hide_in_filter_search')->orWhere('hide_in_filter_search', '!=', 1);
+            })
+            ->orderBy('position', 'desc')
+            ->get();
         foreach ($attributes as $item){
             $translation = $item->translate();
             $list_terms = $item->terms;

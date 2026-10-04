@@ -27,6 +27,7 @@
             'parent_id',
             'banner_image_id',
             'trip_ideas',
+            'gallery',
         ];
         protected $slugField     = 'slug';
         protected $slugFromField = 'name';

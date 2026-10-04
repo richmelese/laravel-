@@ -93,6 +93,7 @@ class Terms extends BaseModel
                     'service' => $attr->service,
                     'display_type' => $attr->display_type,
                     'hide_in_single' => $attr->hide_in_single,
+                    'position' => $attr->position,
                 );
                 if (!empty($dataAttr) and empty($dataAttr['hide_in_single'])) {
                     if (empty($listTerms[$term->attr_id]['child'])) $listTerms[$term->attr_id]['parent'] = $dataAttr;
@@ -110,6 +111,13 @@ class Terms extends BaseModel
                     $listTerms[$term->attr_id]['child'][] = $dataAttr;
                 }
             }
+        }
+        if (!empty($listTerms)) {
+            // Respect the attribute's "position order" (greater number = shown first),
+            // same convention used for the search-filter list.
+            uasort($listTerms, function ($a, $b) {
+                return ($b['parent']['position'] ?? 0) <=> ($a['parent']['position'] ?? 0);
+            });
         }
         return $listTerms;
     }

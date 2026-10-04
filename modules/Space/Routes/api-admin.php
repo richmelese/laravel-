@@ -21,6 +21,7 @@ Route::group(['prefix' => 'space'], function () {
         Route::get('/term_edit/{id}', 'AttributeController@term_edit')->name('api_admin.space.attribute.term.edit');
         Route::post('/term_store', 'AttributeController@term_store')->name('api_admin.space.attribute.term.store');
         Route::post('/editTermBulk', 'AttributeController@editTermBulk')->name('api_admin.space.attribute.term.editTermBulk');
+        Route::post('/term_edit_bulk', 'AttributeController@editTermBulk')->name('api_admin.space.attribute.term.edit_bulk_alias');
 
         Route::get('/getForSelect2', 'AttributeController@getForSelect2')->name('api_admin.space.attribute.term.getForSelect2');
     });

@@ -117,4 +117,44 @@ class ReviewController extends AdminController
         }
         return redirect()->back()->with('success', __('Update success!'));
     }
+
+    public function apiBulkEdit(Request $request)
+    {
+        $this->checkPermission("review_manage_others");
+        $ids = $request->input('ids');
+        $action = (string) $request->input('action', '');
+        if (empty($ids) or !is_array($ids)) {
+            return response()->json(['message' => __('No items selected!')], 422);
+        }
+        if ($action === '') {
+            return response()->json(['message' => __('Please select an action!')], 422);
+        }
+        $allServices = get_bookable_services();
+        $affected = 0;
+        foreach ($ids as $id) {
+            $review = Review::where('id', $id)->first();
+            if (empty($review)) {
+                continue;
+            }
+            if ($action === "delete") {
+                $review->delete();
+            } else {
+                $review->status = $action;
+                $review->save();
+            }
+            $affected++;
+            $module_class = $allServices[$review->object_model] ?? false;
+            if (!empty($module_class)) {
+                $model_serivce = $module_class::withTrashed()->find($review->object_id);
+                if (!empty($model_serivce)) {
+                    Cache::forget('review_' . $model_serivce->type . '_' . $review->object_id);
+                    $model_serivce->update_service_rate();
+                }
+            }
+        }
+        return response()->json([
+            'message'  => __('Update success!'),
+            'affected' => $affected,
+        ]);
+    }
 }

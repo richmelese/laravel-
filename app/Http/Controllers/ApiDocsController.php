@@ -32,7 +32,7 @@ class ApiDocsController extends Controller
   <script>
     window.onload = function() {
       const ui = SwaggerUIBundle({
-        url: "{$url}",
+        url: window.location.origin + "/api/openapi.json",
         dom_id: '#swagger-ui',
         deepLinking: true,
         presets: [

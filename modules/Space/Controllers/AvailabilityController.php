@@ -55,6 +55,10 @@ class AvailabilityController extends FrontendController{
 
         $q = $this->spaceClass::query();
 
+        // Only published spaces can take bookings, so only they make sense in the
+        // availability calendar's space picker (draft spaces aren't bookable yet).
+        $q->where('status', 'publish');
+
         if($request->query('s')){
             $q->where('title','like','%'.$request->query('s').'%');
         }
