@@ -311,6 +311,26 @@ class BoatController extends AdminController
         $request->validate([
             'video'=>'nullable|url'
         ]);
+        if (!$this->isBusAliasRequest($request)) {
+            $request->validate([
+                'price_per_hour'         => 'nullable|numeric|min:0|required_without:price_per_day',
+                'price_per_day'          => 'nullable|numeric|min:0|required_without:price_per_hour',
+                'max_guest'              => 'nullable|integer|min:0',
+                'cabin'                  => 'nullable|integer|min:0',
+                'length'                 => 'nullable|string|max:255',
+                'speed'                  => 'nullable|string|max:255',
+                'min_day_before_booking' => 'nullable|integer|min:0',
+                'start_time_booking'     => 'nullable|date_format:H:i',
+                'end_time_booking'       => 'nullable|date_format:H:i'.($request->filled('start_time_booking') ? '|after:start_time_booking' : ''),
+                'specs'                  => 'nullable|array',
+                'include'                => 'nullable|array',
+                'exclude'                => 'nullable|array',
+            ], [
+                'price_per_hour.required_without' => __('Enter a price per hour or a price per day'),
+                'price_per_day.required_without'  => __('Enter a price per hour or a price per day'),
+                'end_time_booking.after'          => __('End time booking must be later than start time booking'),
+            ]);
+        }
 
         if ($id > 0) {
             $this->checkPermission('boat_update');

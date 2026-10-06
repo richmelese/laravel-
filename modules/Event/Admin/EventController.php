@@ -256,7 +256,21 @@ class EventController extends AdminController
             return redirect()->back()->with('danger',__("DEMO MODE: can not add data"));
         }
         $request->validate([
-            'video'=>'nullable|url'
+            'video'                 => 'nullable|url',
+            'price'                 => 'nullable|numeric|min:0',
+            'sale_price'            => 'nullable|numeric|min:0',
+            'start_time'            => 'nullable|date_format:H:i',
+            'duration'              => 'nullable|integer|min:0',
+            'ticket_types'          => 'nullable|array',
+            'ticket_types.*.name'   => 'required|string|max:255',
+            'ticket_types.*.price'  => 'required|numeric|min:0',
+            'ticket_types.*.number' => 'required|integer|min:1',
+            'extra_price'           => 'nullable|array',
+            'extra_price.*.price'   => 'required|numeric|min:0',
+            'service_fee'           => 'nullable|array',
+            'service_fee.*.price'   => 'required|numeric|min:0',
+        ], [
+            'start_time.date_format' => __('Start time must be in HH:MM format (e.g. 15:00)'),
         ]);
         if ($id > 0) {
             $this->checkPermission('event_update');
