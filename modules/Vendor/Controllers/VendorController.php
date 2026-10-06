@@ -60,6 +60,7 @@ class VendorController extends FrontendController
             'password'   => [
                 'required',
                 'string',
+                'max:64',
                 Password::min(8)
                     ->mixedCase()
                     ->numbers()
@@ -70,7 +71,13 @@ class VendorController extends FrontendController
                 'required',
                 'string',
                 'unique:users,phone',
-                'regex:/^\+?[1-9]\d{6,14}$/'
+                'regex:/^\+?[1-9]\d{6,14}$/',
+                // Ethiopian mobiles: +251 then 9 digits starting with 9 (Ethio telecom) or 7 (Safaricom).
+                function ($attribute, $value, $fail) {
+                    if (preg_match('/^\+?251/', (string) $value) && !preg_match('/^\+?251[79]\d{8}$/', (string) $value)) {
+                        $fail(__('Enter a valid Ethiopian mobile number: +251 followed by 9 digits starting with 9 or 7'));
+                    }
+                },
             ],
             'term'       => ['required'],
         ];
