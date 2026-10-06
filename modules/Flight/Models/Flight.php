@@ -417,7 +417,7 @@ class Flight extends Bookable
         }
         $lang = app()->getLocale();
         if ($this->enable_extra_price) {
-            $booking_data['extra_price'] = $this->extra_price;
+            $booking_data['extra_price'] = $this->normalizedExtraPrices();
             if (!empty($booking_data['extra_price'])) {
                 foreach ($booking_data['extra_price'] as $k => &$type) {
                     if (!empty($lang) and !empty($type['name_' . $lang])) {

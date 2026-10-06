@@ -225,8 +225,8 @@ class Event extends Bookable
             $total += $base_price * $total_tickets;
         }
 
-        if ($this->enable_extra_price and !empty($this->extra_price)) {
-            foreach (array_values($this->extra_price) as $k => $type) {
+        if ($this->enable_extra_price and !empty($this->normalizedExtraPrices())) {
+            foreach (array_values($this->normalizedExtraPrices()) as $k => $type) {
                 if (isset($extra_price_input[$k]) and !empty($extra_price_input[$k]['enable'])) {
                     $type_total = 0;
                     switch ($type['type']) {
@@ -652,7 +652,7 @@ class Event extends Bookable
         }
 
         if ($this->enable_extra_price) {
-            $booking_data['extra_price'] = $this->extra_price;
+            $booking_data['extra_price'] = $this->normalizedExtraPrices();
             if (!empty($booking_data['extra_price'])) {
                 foreach ($booking_data['extra_price'] as $k => &$type) {
                     if (!empty($lang) and !empty($type['name_' . $lang])) {

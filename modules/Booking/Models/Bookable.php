@@ -500,6 +500,34 @@
             }
         }
 
+        /**
+         * `extra_price` with every entry guaranteed to have `name`, `price` and `type`.
+         * Rows saved by older admin/vendor forms (or other clients) can lack `type`, which
+         * crashed getBookingData()/addToCart() with "Undefined array key". Both the booking
+         * total and the detail payload read this list, so extra_price[k] indexes stay aligned.
+         */
+        public function normalizedExtraPrices(): array
+        {
+            $items = $this->extra_price;
+            if (is_string($items)) {
+                $items = json_decode($items, true);
+            }
+            if (!is_array($items)) {
+                return [];
+            }
+            $out = [];
+            foreach (array_values($items) as $item) {
+                if (!is_array($item)) {
+                    continue;
+                }
+                $item['name'] = (string) ($item['name'] ?? '');
+                $item['price'] = is_numeric($item['price'] ?? null) ? $item['price'] : 0;
+                $item['type'] = !empty($item['type']) ? $item['type'] : ($item['charge_type'] ?? 'one_time');
+                $out[] = $item;
+            }
+            return $out;
+        }
+
         public function calculateServiceFees($list_buyer_fees , $amount , $guests){
             $total_amount_fee = 0;
             if (!empty($list_buyer_fees)) {
