@@ -186,8 +186,30 @@
             ];
             // For API/JSON requests, return structured JSON instead of a view.
             if ($request->wantsJson() || $request->is('api/*')) {
+                // Selected terms grouped by attribute (e.g. Travel Styles, Facilities), same as the Blade detail view.
+                $attributes = [];
+                $term_ids = $row->tour_term->pluck('term_id');
+                if ($term_ids->isNotEmpty()) {
+                    foreach (\Modules\Core\Models\Terms::getTermsById($term_ids) as $attribute) {
+                        $parent = $attribute['parent'];
+                        if (!empty($parent['hide_in_single'])) {
+                            continue;
+                        }
+                        $attributes[] = [
+                            'id'    => $parent->id,
+                            'name'  => $parent->translate()->name,
+                            'slug'  => $parent->slug,
+                            'terms' => collect($attribute['child'])->map(fn($term) => [
+                                'id'   => $term->id,
+                                'name' => $term->translate()->name,
+                                'icon' => $term->icon,
+                            ])->values(),
+                        ];
+                    }
+                }
                 return response()->json([
                     'data' => [
+                        'attributes'    => $attributes,
                         'tour'          => $row,
                         'translation'   => $translation,
                         'tour_related'  => $tour_related,

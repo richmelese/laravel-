@@ -145,7 +145,11 @@ class AvailabilityController extends FrontendController
         }
         $dayOfWeek =$request->input("day_of_week_select",[]);
         $postData = $request->input();
-        if (!empty($person_types = $postData['person_types']) and is_array($person_types)) {
+        // The React dashboard sends the guest cap as `number`; the column is `max_guests`.
+        if (!isset($postData['max_guests']) && isset($postData['number'])) {
+            $postData['max_guests'] = $postData['number'];
+        }
+        if (!empty($person_types = $postData['person_types'] ?? null) and is_array($person_types)) {
             foreach ($person_types as &$item) {
                 $item['display_price'] = format_money($item['price']);
             }
